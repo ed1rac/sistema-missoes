@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS configuracoes (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS valores_diarias (
+    id TEXT PRIMARY KEY,
+    categoria TEXT UNIQUE NOT NULL, -- INTERIOR, CAPITAIS, CAPITAIS_ESPECIAIS
+    descricao TEXT NOT NULL,
+    valor REAL NOT NULL,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS orgao_unidades (
     id TEXT PRIMARY KEY,
     sigla TEXT UNIQUE NOT NULL,
@@ -32,6 +41,18 @@ CREATE TABLE IF NOT EXISTS orgao_unidades (
     municipio TEXT NOT NULL,
     uf TEXT NOT NULL,
     is_fronteira INTEGER NOT NULL DEFAULT 0,
+    valor_diaria REAL NOT NULL DEFAULT 380.00,
+    categoria_diaria TEXT NOT NULL DEFAULT 'CAPITAIS',
+    tipo_unidade TEXT NOT NULL DEFAULT 'CAPITAL',
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS setores_destino (
+    id TEXT PRIMARY KEY,
+    sigla TEXT UNIQUE NOT NULL,
+    nome TEXT NOT NULL,
+    unidade_pai_sigla TEXT NOT NULL DEFAULT 'SR/PF/PB',
     ativo INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -82,14 +103,17 @@ CREATE TABLE IF NOT EXISTS missoes (
     tipo_missao TEXT NOT NULL,
     unidade_solicitante TEXT NOT NULL,
     unidade_destino TEXT,
+    setor_destino TEXT,
     localidade_descricao TEXT NOT NULL,
     data_inicio TEXT NOT NULL,
     data_termino TEXT NOT NULL,
     total_dias INTEGER NOT NULL,
     responsavel_matricula TEXT,
     missionario_matricula TEXT REFERENCES servidores(matricula),
-    modalidade TEXT NOT NULL DEFAULT 'EQUIPE', -- 'INDIVIDUAL' ou 'EQUIPE'
+    modalidade TEXT NOT NULL DEFAULT 'INDIVIDUAL', -- 'INDIVIDUAL' ou 'EQUIPE'
     status_atual TEXT NOT NULL DEFAULT 'RASCUNHO',
+    meio_transporte TEXT NOT NULL DEFAULT 'AEREO', -- AEREO, TERRESTRE, PROPRIO
+    custo_estimado_passagens REAL NOT NULL DEFAULT 0.0,
     numero_sat TEXT,
     numero_om TEXT,
     numero_pcdp TEXT,
@@ -141,8 +165,12 @@ CREATE INDEX IF NOT EXISTS idx_missoes_codigo ON missoes(codigo_missao);
 CREATE INDEX IF NOT EXISTS idx_missoes_status ON missoes(status_atual);
 CREATE INDEX IF NOT EXISTS idx_missoes_periodo ON missoes(data_inicio, data_termino);
 CREATE INDEX IF NOT EXISTS idx_missoes_modalidade ON missoes(modalidade);
+CREATE INDEX IF NOT EXISTS idx_missoes_setor ON missoes(setor_destino);
+CREATE INDEX IF NOT EXISTS idx_missoes_transporte ON missoes(meio_transporte);
 CREATE INDEX IF NOT EXISTS idx_participantes_missao ON missoes_participantes(missao_id);
 CREATE INDEX IF NOT EXISTS idx_participantes_servidor ON missoes_participantes(servidor_matricula);
+CREATE INDEX IF NOT EXISTS idx_setores_sigla ON setores_destino(sigla);
+CREATE INDEX IF NOT EXISTS idx_setores_unidade_pai ON setores_destino(unidade_pai_sigla);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);
 """
 
@@ -171,7 +199,23 @@ def init_db(db_path: str = None):
                 if "missionario_matricula" not in cols:
                     conn.execute("ALTER TABLE missoes ADD COLUMN missionario_matricula TEXT REFERENCES servidores(matricula);")
                 if "modalidade" not in cols:
-                    conn.execute("ALTER TABLE missoes ADD COLUMN modalidade TEXT NOT NULL DEFAULT 'EQUIPE';")
+                    conn.execute("ALTER TABLE missoes ADD COLUMN modalidade TEXT NOT NULL DEFAULT 'INDIVIDUAL';")
+                if "setor_destino" not in cols:
+                    conn.execute("ALTER TABLE missoes ADD COLUMN setor_destino TEXT;")
+                if "meio_transporte" not in cols:
+                    conn.execute("ALTER TABLE missoes ADD COLUMN meio_transporte TEXT NOT NULL DEFAULT 'AEREO';")
+                if "custo_estimado_passagens" not in cols:
+                    conn.execute("ALTER TABLE missoes ADD COLUMN custo_estimado_passagens REAL NOT NULL DEFAULT 0.0;")
+
+            unid_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orgao_unidades'").fetchone()
+            if unid_check:
+                u_cols = [r["name"] for r in conn.execute("PRAGMA table_info(orgao_unidades)").fetchall()]
+                if "valor_diaria" not in u_cols:
+                    conn.execute("ALTER TABLE orgao_unidades ADD COLUMN valor_diaria REAL NOT NULL DEFAULT 380.00;")
+                if "categoria_diaria" not in u_cols:
+                    conn.execute("ALTER TABLE orgao_unidades ADD COLUMN categoria_diaria TEXT NOT NULL DEFAULT 'CAPITAIS';")
+                if "tipo_unidade" not in u_cols:
+                    conn.execute("ALTER TABLE orgao_unidades ADD COLUMN tipo_unidade TEXT NOT NULL DEFAULT 'CAPITAL';")
         except Exception as e:
             print(f"[DB PRE-MIGRATION WARNING] {e}")
 

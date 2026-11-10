@@ -139,13 +139,16 @@ class MissaoBase(BaseModel):
     tipo_missao: str  # Operacional, Capacitação, etc.
     unidade_solicitante: str
     unidade_destino: Optional[str] = None
+    setor_destino: Optional[str] = None
     localidade_descricao: str
     data_inicio: str
     data_termino: str
     responsavel_matricula: Optional[str] = None
     missionario_matricula: Optional[str] = None
-    modalidade: str = "EQUIPE"  # 'INDIVIDUAL' ou 'EQUIPE'
+    modalidade: str = "INDIVIDUAL"  # 'INDIVIDUAL' como padrão
     status_atual: str = "RASCUNHO"
+    meio_transporte: str = "AEREO"  # AEREO, TERRESTRE, PROPRIO
+    custo_estimado_passagens: float = Field(default=0.0, ge=0.0)
     numero_sat: Optional[str] = None
     numero_om: Optional[str] = None
     numero_pcdp: Optional[str] = None
@@ -154,7 +157,7 @@ class MissaoBase(BaseModel):
     observacoes: Optional[str] = None
 
 class MissaoCreate(MissaoBase):
-    pass
+    servidores_matriculas: Optional[List[str]] = None
 
 class MissaoUpdate(BaseModel):
     titulo: Optional[str] = None
@@ -162,6 +165,7 @@ class MissaoUpdate(BaseModel):
     tipo_missao: Optional[str] = None
     unidade_solicitante: Optional[str] = None
     unidade_destino: Optional[str] = None
+    setor_destino: Optional[str] = None
     localidade_descricao: Optional[str] = None
     data_inicio: Optional[str] = None
     data_termino: Optional[str] = None
@@ -169,6 +173,8 @@ class MissaoUpdate(BaseModel):
     missionario_matricula: Optional[str] = None
     modalidade: Optional[str] = None
     status_atual: Optional[str] = None
+    meio_transporte: Optional[str] = None
+    custo_estimado_passagens: Optional[float] = Field(default=None, ge=0.0)
     numero_sat: Optional[str] = None
     numero_om: Optional[str] = None
     numero_pcdp: Optional[str] = None
@@ -183,6 +189,32 @@ class StatusUpdate(BaseModel):
 class ValorDiariaUpdate(BaseModel):
     novo_valor_diaria: float = Field(ge=0.0, description="Novo valor base da diária em R$")
     recalcular_participantes: bool = Field(default=True, description="Se deve atualizar e recalcular todos os participantes vinculados")
+
+class ValorDiariaItem(BaseModel):
+    id: str
+    categoria: str
+    descricao: str
+    valor: float
+    ativo: bool = True
+    created_at: Optional[str] = None
+
+class ValorDiariaItemUpdate(BaseModel):
+    valor: float = Field(ge=0.0)
+    descricao: Optional[str] = None
+    ativo: Optional[bool] = None
+
+class SetorDestinoOut(BaseModel):
+    id: str
+    sigla: str
+    nome: str
+    unidade_pai_sigla: str = "SR/PF/PB"
+    ativo: bool = True
+    created_at: Optional[str] = None
+
+class SetorDestinoCreate(BaseModel):
+    sigla: str
+    nome: str
+    unidade_pai_sigla: str = "SR/PF/PB"
 
 class MissaoOut(MissaoBase):
     id: str
@@ -203,6 +235,9 @@ class OrgaoUnidadeBase(BaseModel):
     municipio: str
     uf: str
     is_fronteira: bool = False
+    valor_diaria: float = Field(default=380.00, ge=0.0)
+    categoria_diaria: str = "CAPITAIS"
+    tipo_unidade: str = "CAPITAL"
     ativo: bool = True
 
 class OrgaoUnidadeCreate(OrgaoUnidadeBase):
@@ -213,6 +248,9 @@ class OrgaoUnidadeUpdate(BaseModel):
     municipio: Optional[str] = None
     uf: Optional[str] = None
     is_fronteira: Optional[bool] = None
+    valor_diaria: Optional[float] = Field(default=None, ge=0.0)
+    categoria_diaria: Optional[str] = None
+    tipo_unidade: Optional[str] = None
     ativo: Optional[bool] = None
 
 class OrgaoUnidadeOut(OrgaoUnidadeBase):
@@ -249,3 +287,12 @@ class DashboardSummary(BaseModel):
     custo_total_geral: float
     valor_diaria_padrao_sistema: float
     alertas: List[AlertItem]
+    # Novos indicadores solicitados
+    diarias_sr_pb: float = 0.0
+    diarias_cge_pb: float = 0.0
+    diarias_pat_pb: float = 0.0
+    passagens_total_pb: float = 0.0
+    servidores_cadastrar_scdp: int = 0
+    servidores_prestacao_contas_pendente: int = 0
+    servidores_om_pendente: int = 0
+    servidores_missao_concluida: int = 0
