@@ -184,13 +184,15 @@ def update_usuario(
     )
 
 @router.patch("/{id_or_username}/senha")
+@router.post("/{id_or_username}/reset-password")
 def reset_usuario_senha(
     id_or_username: str,
     payload: UserPasswordReset,
     request: Request,
     current_user: dict = Depends(require_admin_only)
 ):
-    if len(payload.nova_senha) < 4:
+    senha = payload.get_password()
+    if len(senha) < 4:
         raise HTTPException(status_code=400, detail="A nova senha deve possuir ao menos 4 caracteres.")
 
     with get_db() as conn:
@@ -201,7 +203,7 @@ def reset_usuario_senha(
         if not u:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
-        pwhash = hash_password(payload.nova_senha)
+        pwhash = hash_password(senha)
         conn.execute("UPDATE usuarios SET password_hash = ? WHERE id = ?", (pwhash, u["id"]))
 
     log_audit(

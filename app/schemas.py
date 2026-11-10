@@ -33,7 +33,11 @@ class UserUpdate(BaseModel):
     ativo: Optional[bool] = None
 
 class UserPasswordReset(BaseModel):
-    nova_senha: str
+    nova_senha: Optional[str] = None
+    new_password: Optional[str] = None
+
+    def get_password(self) -> str:
+        return self.nova_senha or self.new_password or ""
 
 
 class ServidorBase(BaseModel):

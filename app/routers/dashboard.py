@@ -271,19 +271,45 @@ def get_dashboard_charts(
             f_params
         ).fetchall()
 
+    por_tipo_list = [dict(r) for r in por_tipo]
+    por_cargo_list = [dict(r) for r in por_cargo]
+    por_status_list = [dict(r) for r in por_status]
+    custos_mes_list = [
+        {
+            "mes_ano": r["mes_ano"],
+            "mes": r["mes"],
+            "diarias": round(float(r["diarias"]), 2),
+            "total_diarias": round(float(r["diarias"]), 2),
+            "passagens": round(float(r["passagens"]), 2),
+            "total_passagens": round(float(r["passagens"]), 2),
+            "total": round(float(r["total"]), 2),
+            "total_custo": round(float(r["total"]), 2)
+        }
+        for r in custos_mes
+    ]
+
+    # Top unidades
+    with get_db() as conn:
+        top_unid = conn.execute(
+            f"""
+            SELECT m.unidade_destino as unidade, COUNT(*) as total
+            FROM missoes m
+            {f_where} AND m.status_atual != 'CANCELADA' AND m.unidade_destino IS NOT NULL
+            GROUP BY m.unidade_destino
+            ORDER BY total DESC
+            LIMIT 5
+            """,
+            f_params
+        ).fetchall()
+        top_unidades = [dict(r) for r in top_unid]
+
     return {
-        "por_tipo": [dict(r) for r in por_tipo],
-        "por_cargo": [dict(r) for r in por_cargo],
-        "por_status": [dict(r) for r in por_status],
-        "custos_por_mes": [
-            {
-                "mes_ano": r["mes_ano"],
-                "mes": r["mes"],
-                "diarias": round(float(r["diarias"]), 2),
-                "passagens": round(float(r["passagens"]), 2),
-                "total": round(float(r["total"]), 2)
-            }
-            for r in custos_mes
-        ]
+        "por_tipo": por_tipo_list,
+        "por_cargo": por_cargo_list,
+        "por_status": por_status_list,
+        "custos_por_mes": custos_mes_list,
+        "status_counts": [{"status": r["status_atual"], "total": r["qtd"]} for r in por_status],
+        "tipo_counts": [{"tipo": r["tipo_missao"], "total": r["qtd"]} for r in por_tipo],
+        "top_unidades_demandantes": top_unidades
     }
 
