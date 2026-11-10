@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  sis-missoes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sis_missoes_pf
+    restart: unless-stopped
+    ports:
+      - "5179:5179"
+    environment:
+      - PORT=5179
+      - HOST=0.0.0.0
+      - DEFAULT_DAILY_ALLOWANCE=425.00
+      - JWT_SECRET=sis-missoes-super-secret-key-pf-2026-production
+    volumes:
+      - missoes_data:/app/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5179/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  missoes_data:
+    name: sis_missoes_pf_data
