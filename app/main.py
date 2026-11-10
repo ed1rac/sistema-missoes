@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.config import PORT, HOST
 from app.seed import seed_database
-from app.routers import auth, servidores, missoes, config, dashboard, export, audit
+from app.routers import auth, servidores, missoes, config, dashboard, export, audit, usuarios
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,6 +40,8 @@ app.include_router(config.router)
 app.include_router(dashboard.router)
 app.include_router(export.router)
 app.include_router(audit.router)
+app.include_router(usuarios.router)
+
 
 # Rota de Healthcheck
 @app.get("/api/health", tags=["Infraestrutura"])

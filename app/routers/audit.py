@@ -1,7 +1,7 @@
 import json
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query
-from app.auth import require_admin
+from app.auth import require_audit_view
 from app.database import get_db
 
 router = APIRouter(prefix="/api/audit", tags=["Trilha de Auditoria"])
@@ -12,7 +12,9 @@ def list_audit_logs(
     operacao: Optional[str] = None,
     entidade: Optional[str] = None,
     usuario: Optional[str] = None,
-    current_user: dict = Depends(require_admin)
+    data_de: Optional[str] = None,
+    data_ate: Optional[str] = None,
+    current_user: dict = Depends(require_audit_view)
 ):
     query = "SELECT * FROM audit_logs WHERE 1=1"
     params = []
@@ -26,9 +28,16 @@ def list_audit_logs(
     if usuario:
         query += " AND usuario_login = ?"
         params.append(usuario)
+    if data_de:
+        query += " AND timestamp >= ?"
+        params.append(data_de)
+    if data_ate:
+        query += " AND timestamp <= ?"
+        params.append(data_ate + " 23:59:59" if len(data_ate) == 10 else data_ate)
 
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
+
 
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()

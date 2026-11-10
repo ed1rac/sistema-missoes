@@ -7,19 +7,23 @@ from app.config import DEFAULT_DAILY_ALLOWANCE
 def seed_database(db_path: str = None):
     init_db(db_path)
     with get_db(db_path) as conn:
-        # 1. Usuários Mestres (Master / Admin)
+        # 1. Usuários do Sistema (Master, Admin, Cadastrador, Gerencial)
         # admin / 123456
         # edkallenn / 123456
+        # cadastrador / 123456
+        # gerencial / 123456
         users = [
             ("usr-admin-01", "admin", hash_password("123456"), "Administrador Geral do Sistema", "admin@pf.gov.br", "ADMIN"),
-            ("usr-edk-01", "edkallenn", hash_password("123456"), "Edkallenn Lima (Master)", "edkallenn@pf.gov.br", "ADMIN")
+            ("usr-edk-01", "edkallenn", hash_password("123456"), "Edkallenn Lima (Master)", "edkallenn@pf.gov.br", "ADMIN"),
+            ("usr-cad-01", "cadastrador", hash_password("123456"), "Cadastrador Operacional de Missões", "cadastrador@pf.gov.br", "CADASTRADOR"),
+            ("usr-ger-01", "gerencial", hash_password("123456"), "Gestor de Consulta Gerencial e Auditoria", "gerencial@pf.gov.br", "GERENCIAL")
         ]
         for uid, uname, pwhash, fname, mail, role in users:
             conn.execute(
                 """
                 INSERT INTO usuarios (id, username, password_hash, full_name, email, role, ativo)
                 VALUES (?, ?, ?, ?, ?, ?, 1)
-                ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, role=excluded.role
+                ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, role=excluded.role, full_name=excluded.full_name
                 """,
                 (uid, uname, pwhash, fname, mail, role)
             )

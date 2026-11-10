@@ -64,3 +64,36 @@ def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> D
             detail="Operação restrita a administradores e gestores nacionais"
         )
     return current_user
+
+def require_admin_only(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operação restrita exclusivamente ao Administrador Geral do Sistema"
+        )
+    return current_user
+
+def require_approval_permission(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") not in ("ADMIN", "GESTOR_NAC"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permissão insuficiente: Aprovação e tramitação de OM/PCDP exigem perfil Administrador ou Gestor Nacional"
+        )
+    return current_user
+
+def require_write_permission(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") not in ("ADMIN", "GESTOR_NAC", "CADASTRADOR"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permissão insuficiente: Usuário possui perfil de somente leitura"
+        )
+    return current_user
+
+def require_audit_view(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") not in ("ADMIN", "GESTOR_NAC", "GERENCIAL"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operação restrita a administradores, gestores e perfil gerencial de auditoria"
+        )
+    return current_user
+

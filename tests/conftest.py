@@ -57,3 +57,24 @@ def admin_headers(admin_token):
 @pytest.fixture
 def edkallenn_headers(edkallenn_token):
     return {"Authorization": f"Bearer {edkallenn_token}"}
+
+@pytest.fixture
+def cadastrador_token(client):
+    res = client.post("/api/auth/login", json={"username": "cadastrador", "password": "123456"})
+    assert res.status_code == 200
+    return res.json()["access_token"]
+
+@pytest.fixture
+def cadastrador_headers(cadastrador_token):
+    return {"Authorization": f"Bearer {cadastrador_token}"}
+
+@pytest.fixture
+def gerencial_token(client):
+    res = client.post("/api/auth/login", json={"username": "gerencial", "password": "123456"})
+    assert res.status_code == 200
+    return res.json()["access_token"]
+
+@pytest.fixture
+def gerencial_headers(gerencial_token):
+    return {"Authorization": f"Bearer {gerencial_token}"}
+
