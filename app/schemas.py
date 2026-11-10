@@ -18,6 +18,24 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserOut
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: str
+    email: Optional[str] = None
+    role: str = "CADASTRADOR"  # ADMIN, GESTOR_NAC, CADASTRADOR, GERENCIAL, SERVIDOR
+    ativo: bool = True
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    ativo: Optional[bool] = None
+
+class UserPasswordReset(BaseModel):
+    nova_senha: str
+
+
 class ServidorBase(BaseModel):
     matricula: str
     nome_completo: str
@@ -100,13 +118,15 @@ class MissaoBase(BaseModel):
     codigo_missao: str
     titulo: str
     justificativa: str
-    tipo_missao: str  # Ensino ANP, Operacional, etc.
+    tipo_missao: str  # Operacional, Capacitação, etc.
     unidade_solicitante: str
     unidade_destino: Optional[str] = None
     localidade_descricao: str
     data_inicio: str
     data_termino: str
     responsavel_matricula: Optional[str] = None
+    missionario_matricula: Optional[str] = None
+    modalidade: str = "EQUIPE"  # 'INDIVIDUAL' ou 'EQUIPE'
     status_atual: str = "RASCUNHO"
     numero_sat: Optional[str] = None
     numero_om: Optional[str] = None
@@ -128,6 +148,8 @@ class MissaoUpdate(BaseModel):
     data_inicio: Optional[str] = None
     data_termino: Optional[str] = None
     responsavel_matricula: Optional[str] = None
+    missionario_matricula: Optional[str] = None
+    modalidade: Optional[str] = None
     status_atual: Optional[str] = None
     numero_sat: Optional[str] = None
     numero_om: Optional[str] = None
@@ -148,6 +170,7 @@ class MissaoOut(MissaoBase):
     id: str
     total_dias: int
     responsavel_nome: Optional[str] = None
+    missionario_nome: Optional[str] = None
     total_participantes: int = 0
     total_custo_diarias: float = 0.0
     total_custo_passagens: float = 0.0
@@ -155,6 +178,29 @@ class MissaoOut(MissaoBase):
     participantes: List[ParticipanteOut] = []
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+class OrgaoUnidadeBase(BaseModel):
+    sigla: str
+    nome_extenso: str
+    municipio: str
+    uf: str
+    is_fronteira: bool = False
+    ativo: bool = True
+
+class OrgaoUnidadeCreate(OrgaoUnidadeBase):
+    pass
+
+class OrgaoUnidadeUpdate(BaseModel):
+    nome_extenso: Optional[str] = None
+    municipio: Optional[str] = None
+    uf: Optional[str] = None
+    is_fronteira: Optional[bool] = None
+    ativo: Optional[bool] = None
+
+class OrgaoUnidadeOut(OrgaoUnidadeBase):
+    id: str
+    created_at: Optional[str] = None
+
 
 class ConfigItem(BaseModel):
     chave: str

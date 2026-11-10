@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS missoes (
     data_termino TEXT NOT NULL,
     total_dias INTEGER NOT NULL,
     responsavel_matricula TEXT,
+    missionario_matricula TEXT REFERENCES servidores(matricula),
+    modalidade TEXT NOT NULL DEFAULT 'EQUIPE', -- 'INDIVIDUAL' ou 'EQUIPE'
     status_atual TEXT NOT NULL DEFAULT 'RASCUNHO',
     numero_sat TEXT,
     numero_om TEXT,
@@ -138,6 +140,7 @@ CREATE INDEX IF NOT EXISTS idx_servidores_nome ON servidores(nome_completo);
 CREATE INDEX IF NOT EXISTS idx_missoes_codigo ON missoes(codigo_missao);
 CREATE INDEX IF NOT EXISTS idx_missoes_status ON missoes(status_atual);
 CREATE INDEX IF NOT EXISTS idx_missoes_periodo ON missoes(data_inicio, data_termino);
+CREATE INDEX IF NOT EXISTS idx_missoes_modalidade ON missoes(modalidade);
 CREATE INDEX IF NOT EXISTS idx_participantes_missao ON missoes_participantes(missao_id);
 CREATE INDEX IF NOT EXISTS idx_participantes_servidor ON missoes_participantes(servidor_matricula);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);
@@ -161,3 +164,13 @@ def get_db(db_path: str = None) -> Generator[sqlite3.Connection, None, None]:
 def init_db(db_path: str = None):
     with get_db(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Migração idempotente para colunas novas em bases existentes
+        try:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(missoes)").fetchall()]
+            if "missionario_matricula" not in cols:
+                conn.execute("ALTER TABLE missoes ADD COLUMN missionario_matricula TEXT REFERENCES servidores(matricula);")
+            if "modalidade" not in cols:
+                conn.execute("ALTER TABLE missoes ADD COLUMN modalidade TEXT NOT NULL DEFAULT 'EQUIPE';")
+        except Exception as e:
+            print(f"[DB MIGRATION WARNING] {e}")
+

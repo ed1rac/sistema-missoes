@@ -44,9 +44,10 @@ def _format_participante(row: dict) -> ParticipanteOut:
 def _get_missao_full(missao_id_or_code: str, conn) -> Optional[dict]:
     m = conn.execute(
         """
-        SELECT m.*, s.nome_completo as responsavel_nome
+        SELECT m.*, s.nome_completo as responsavel_nome, sm.nome_completo as missionario_nome
         FROM missoes m
         LEFT JOIN servidores s ON m.responsavel_matricula = s.matricula
+        LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
         WHERE m.id = ? OR m.codigo_missao = ?
         """,
         (missao_id_or_code, missao_id_or_code)
@@ -91,13 +92,14 @@ def list_missoes(
     current_user: dict = Depends(get_current_user)
 ):
     query = """
-        SELECT m.*, s.nome_completo as responsavel_nome,
+        SELECT m.*, s.nome_completo as responsavel_nome, sm.nome_completo as missionario_nome,
                COUNT(p.id) as total_participantes,
                COALESCE(SUM(p.valor_total_diarias), 0.0) as total_custo_diarias,
                COALESCE(SUM(p.valor_passagem_aerea), 0.0) as total_custo_passagens,
                COALESCE(SUM(p.custo_total_servidor), 0.0) as total_custo_geral
         FROM missoes m
         LEFT JOIN servidores s ON m.responsavel_matricula = s.matricula
+        LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
         LEFT JOIN missoes_participantes p ON m.id = p.missao_id
         WHERE 1=1
     """
@@ -148,6 +150,9 @@ def list_missoes(
             total_dias=int(r["total_dias"]),
             responsavel_matricula=r["responsavel_matricula"],
             responsavel_nome=r["responsavel_nome"],
+            missionario_matricula=r["missionario_matricula"],
+            missionario_nome=r["missionario_nome"],
+            modalidade=r["modalidade"] or "EQUIPE",
             status_atual=r["status_atual"],
             numero_sat=r["numero_sat"],
             numero_om=r["numero_om"],
@@ -165,6 +170,7 @@ def list_missoes(
         )
         for r in rows
     ]
+
 
 @router.get("/{codigo_ou_id}", response_model=MissaoOut)
 def get_missao(codigo_ou_id: str, current_user: dict = Depends(get_current_user)):
@@ -201,16 +207,17 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
             INSERT INTO missoes (
                 id, codigo_missao, titulo, justificativa, tipo_missao, unidade_solicitante,
                 unidade_destino, localidade_descricao, data_inicio, data_termino, total_dias,
-                responsavel_matricula, status_atual, numero_sat, numero_om, numero_pcdp,
+                responsavel_matricula, missionario_matricula, modalidade, status_atual, numero_sat, numero_om, numero_pcdp,
                 processo_sei, valor_diaria_padrao, observacoes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mid, data.codigo_missao.strip(), data.titulo.strip(), data.justificativa.strip(),
                 data.tipo_missao, data.unidade_solicitante, data.unidade_destino,
                 data.localidade_descricao.strip(), str(d_inicio), str(d_termino), total_dias,
-                data.responsavel_matricula, data.status_atual or "RASCUNHO",
+                data.responsavel_matricula, data.missionario_matricula,
+                (data.modalidade or "EQUIPE").upper(), data.status_atual or "RASCUNHO",
                 data.numero_sat, data.numero_om, data.numero_pcdp, data.processo_sei,
                 valor_diaria, data.observacoes
             )
@@ -268,6 +275,13 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
         if data.responsavel_matricula is not None:
             updates.append("responsavel_matricula = ?")
             params.append(data.responsavel_matricula)
+        if data.missionario_matricula is not None:
+            updates.append("missionario_matricula = ?")
+            params.append(data.missionario_matricula if data.missionario_matricula.strip() else None)
+        if data.modalidade is not None:
+            updates.append("modalidade = ?")
+            params.append(data.modalidade.upper())
+
         if data.status_atual is not None:
             updates.append("status_atual = ?")
             params.append(data.status_atual)
