@@ -366,9 +366,10 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                     "Participante individual vinculado automaticamente."
                 )
             )
-        elif modalidade == "EQUIPE" and data.servidores_matriculas:
+        elif modalidade == "EQUIPE" and (data.servidores_matriculas or data.servidores_equipe_matriculas):
             # Inserir múltiplos servidores na missão de equipe
-            for idx, mat in enumerate(data.servidores_matriculas):
+            equipe_mats = data.servidores_matriculas or data.servidores_equipe_matriculas
+            for idx, mat in enumerate(equipe_mats):
                 mat_clean = mat.strip()
                 srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (mat_clean,)).fetchone()
                 if not srv:
@@ -1083,7 +1084,7 @@ def create_unidade(data: OrgaoUnidadeCreate, request: Request, current_user: dic
         valor_diaria=v_diaria, categoria_diaria=cat_diaria, tipo_unidade=tipo_unid, ativo=data.ativo
     )
 
-@router.put("/meta/unidades/{sigla_ou_id}", response_model=OrgaoUnidadeOut)
+@router.put("/meta/unidades/{sigla_ou_id:path}", response_model=OrgaoUnidadeOut)
 def update_unidade(sigla_ou_id: str, data: OrgaoUnidadeUpdate, request: Request, current_user: dict = Depends(require_admin)):
     with get_db() as conn:
         u = conn.execute("SELECT * FROM orgao_unidades WHERE id = ? OR sigla = ?", (sigla_ou_id, sigla_ou_id.upper())).fetchone()
@@ -1142,7 +1143,7 @@ def update_unidade(sigla_ou_id: str, data: OrgaoUnidadeUpdate, request: Request,
         created_at=str(res["created_at"])
     )
 
-@router.delete("/meta/unidades/{sigla_ou_id}")
+@router.delete("/meta/unidades/{sigla_ou_id:path}")
 def delete_unidade(sigla_ou_id: str, request: Request, current_user: dict = Depends(require_admin)):
     with get_db() as conn:
         u = conn.execute("SELECT * FROM orgao_unidades WHERE id = ? OR sigla = ?", (sigla_ou_id, sigla_ou_id.upper())).fetchone()

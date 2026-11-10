@@ -230,3 +230,140 @@ def test_dashboard_filtros_hot(client, edkallenn_headers):
         data = res.json()
         assert "total_missoes" in data
         assert "custo_total_geral" in data
+
+
+def test_criar_missao_com_servidores_equipe_matriculas_alias(client, edkallenn_headers):
+    """Testa criação de missão em equipe utilizando o campo alternativo servidores_equipe_matriculas."""
+    res_srv = client.get("/api/servidores?ativo=true", headers=edkallenn_headers)
+    servidores = res_srv.json()
+    mat1 = servidores[0]["matricula"]
+    mat2 = servidores[1]["matricula"]
+
+    payload = {
+        "codigo_missao": "MIS-2026-ALIAS-EQ01",
+        "titulo": "Operação Teste Alias Equipe",
+        "justificativa": "Teste do payload com chave servidores_equipe_matriculas",
+        "tipo_missao": "Operacional / Repressão",
+        "modalidade": "EQUIPE",
+        "meio_transporte": "AEREO",
+        "custo_estimado_passagens": 1800.0,
+        "setor_destino": "SELOG",
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "DPF/PAT/PB",
+        "localidade_descricao": "Patos / PB",
+        "data_inicio": "2026-09-01",
+        "data_termino": "2026-09-05",
+        "servidores_equipe_matriculas": [mat1, mat2]
+    }
+
+    res = client.post("/api/missoes", json=payload, headers=edkallenn_headers)
+    assert res.status_code == 201, f"Erro: {res.text}"
+    missao = res.json()
+    assert len(missao["participantes"]) == 2
+    mats = {p["servidor_matricula"] for p in missao["participantes"]}
+    assert mat1 in mats and mat2 in mats
+
+
+def test_alerta_passagem_aerea_com_servidores_nomes(client, edkallenn_headers):
+    """Verifica se o alerta de passagens aéreas (17 dias) lista os nomes de todos os policiais escalados."""
+    hoje = date.today()
+    dt_inicio = (hoje + timedelta(days=10)).isoformat()
+    dt_fim = (hoje + timedelta(days=15)).isoformat()
+
+    res_srv = client.get("/api/servidores?ativo=true", headers=edkallenn_headers)
+    servidor = res_srv.json()[0]
+
+    payload = {
+        "codigo_missao": "MIS-2026-VOO-17D",
+        "titulo": "Missão Urgente com Bilhete Aéreo em 10 dias",
+        "justificativa": "Operação emergencial interestadual",
+        "tipo_missao": "Operacional / Repressão",
+        "modalidade": "INDIVIDUAL",
+        "meio_transporte": "AEREO",
+        "custo_estimado_passagens": 2200.0,
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "SR/PF/DF",
+        "localidade_descricao": "Brasília / DF",
+        "data_inicio": dt_inicio,
+        "data_termino": dt_fim,
+        "missionario_matricula": servidor["matricula"]
+    }
+
+    res = client.post("/api/missoes", json=payload, headers=edkallenn_headers)
+    assert res.status_code == 201
+
+    res_dash = client.get("/api/dashboard/summary", headers=edkallenn_headers)
+    assert res_dash.status_code == 200
+    alertas = res_dash.json().get("alertas", [])
+
+    alerta_voo = next((a for a in alertas if a.get("codigo_missao") == "MIS-2026-VOO-17D"), None)
+    assert alerta_voo is not None, "Alerta de passagem aérea de 17 dias não foi disparado para a missão criada."
+    assert "servidores_nomes" in alerta_voo
+    assert isinstance(alerta_voo["servidores_nomes"], list)
+    assert len(alerta_voo["servidores_nomes"]) >= 1
+    assert any(servidor["nome_completo"] in nome for nome in alerta_voo["servidores_nomes"])
+
+
+def test_unidade_crud_com_valor_e_categoria_diaria(client, edkallenn_headers):
+    """Testa criação e edição de unidade contemplando valor_diaria, categoria_diaria e tipo_unidade."""
+    sigla = "DPF/TESTE/PB"
+    payload = {
+        "sigla": sigla,
+        "nome_extenso": "Delegacia Teste no Interior da PB",
+        "municipio": "Guarabira",
+        "uf": "PB",
+        "valor_diaria": 335.0,
+        "categoria_diaria": "INTERIOR",
+        "tipo_unidade": "DELEGACIA",
+        "is_fronteira": False,
+        "ativo": True
+    }
+
+    # Criar
+    res = client.post("/api/missoes/meta/unidades", json=payload, headers=edkallenn_headers)
+    assert res.status_code == 201, f"Erro: {res.text}"
+    unid_criada = res.json()
+    assert unid_criada["sigla"] == sigla
+    assert unid_criada["valor_diaria"] == 335.0
+    assert unid_criada["categoria_diaria"] == "INTERIOR"
+    assert unid_criada["tipo_unidade"] == "DELEGACIA"
+
+    # Atualizar
+    update_payload = {
+        "valor_diaria": 380.0,
+        "categoria_diaria": "CAPITAIS",
+        "tipo_unidade": "SUPERINTENDENCIA"
+    }
+    res_up = client.put(f"/api/missoes/meta/unidades/{sigla}", json=update_payload, headers=edkallenn_headers)
+    assert res_up.status_code == 200
+    unid_atualizada = res_up.json()
+    assert unid_atualizada["valor_diaria"] == 380.0
+    assert unid_atualizada["categoria_diaria"] == "CAPITAIS"
+
+
+def test_atualizar_valor_diaria_oficial_propaga_unidades(client, edkallenn_headers):
+    """Testa atualização de categoria de diária oficial via PUT e propagação para unidades."""
+    # Atualiza INTERIOR para 337.00
+    res = client.put(
+        "/api/missoes/meta/valores-diarias/INTERIOR",
+        json={"valor": 337.0},
+        headers=edkallenn_headers
+    )
+    assert res.status_code == 200
+    assert res.json()["valor"] == 337.0
+
+    # Verifica se DPF/CGE/PB refletiu o novo valor
+    res_unid = client.get("/api/missoes/meta/unidades", headers=edkallenn_headers)
+    unidades = {u["sigla"]: u for u in res_unid.json()}
+    if "DPF/CGE/PB" in unidades:
+        assert unidades["DPF/CGE/PB"]["valor_diaria"] == 337.0
+
+    # Restaura valor padrão oficial R$ 335.00
+    res_restaura = client.put(
+        "/api/missoes/meta/valores-diarias/INTERIOR",
+        json={"valor": 335.0},
+        headers=edkallenn_headers
+    )
+    assert res_restaura.status_code == 200
+    assert res_restaura.json()["valor"] == 335.0
+

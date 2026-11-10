@@ -289,45 +289,71 @@ def get_dashboard_summary(
             custo_params
         ).fetchone()["tot"]
 
-        # QUANTIDADE DE SERVIDORES POR STATUS DE FLUXO
+        # Constrói filtro para os 4 cards de status sem filtrar pelo próprio status selecionado,
+        # para que o usuário veja a contagem de servidores nas 4 etapas dentro do escopo dos outros filtros (ano, mês, setor, etc.)
+        f_where_st, f_params_st = _build_missao_filter(
+            ano=ano, mes=mes, trimestre=trimestre, semestre=semestre, bimestre=bimestre,
+            cargo=cargo, unidade_pb=unidade_pb, setor=setor, meio_transporte=meio_transporte,
+            data_de=data_de, data_ate=data_ate, status=None, tipo=tipo,
+            solicitante=solicitante, destino=destino, modalidade=modalidade, alias="m"
+        )
+        st_join = custo_join
+        st_extra = custo_extra_where
+        st_params = list(f_params_st)
+        if cargo:
+            st_params.append(cargo.upper())
+
+        # QUANTIDADE DE SERVIDORES POR STATUS DE FLUXO (filtrados pelo contexto ativo)
         # 1. QTOS SERVIDORES NO STATUS CADASTRAR SCDP
         scdp_srv = conn.execute(
-            """
-            SELECT COUNT(DISTINCT p.servidor_matricula) as cnt
-            FROM missoes_participantes p
-            JOIN missoes m ON p.missao_id = m.id
-            WHERE m.status_atual IN ('PCDP CADASTRADA', 'PCDP_CADASTRADA', 'PCDP_TRAMITADA', 'OM_EMITIDA', 'OM EMITIDA')
-            """
+            f"""
+            SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
+            FROM missoes m
+            LEFT JOIN missoes_participantes p ON m.id = p.missao_id
+            {st_join}
+            {f_where_st} {st_extra}
+              AND m.status_atual IN ('PCDP CADASTRADA', 'PCDP_CADASTRADA', 'PCDP_TRAMITADA', 'OM_EMITIDA', 'OM EMITIDA')
+            """,
+            st_params
         ).fetchone()["cnt"]
 
         # 2. QTOS SERVIDORES NO STATUS PRESTAÇÃO CONTAS PENDENTE
         pc_srv = conn.execute(
-            """
-            SELECT COUNT(DISTINCT p.servidor_matricula) as cnt
-            FROM missoes_participantes p
-            JOIN missoes m ON p.missao_id = m.id
-            WHERE m.status_atual IN ('PRESTACAO_CONTAS', 'PCDP PRESTAR CONTAS', 'PCDP_PRESTAR_CONTAS')
-            """
+            f"""
+            SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
+            FROM missoes m
+            LEFT JOIN missoes_participantes p ON m.id = p.missao_id
+            {st_join}
+            {f_where_st} {st_extra}
+              AND m.status_atual IN ('PRESTACAO_CONTAS', 'PCDP PRESTAR CONTAS', 'PCDP_PRESTAR_CONTAS')
+            """,
+            st_params
         ).fetchone()["cnt"]
 
         # 3. QTOS SERVIDORES NO STATUS OM PENDENTE
         om_srv = conn.execute(
-            """
-            SELECT COUNT(DISTINCT p.servidor_matricula) as cnt
-            FROM missoes_participantes p
-            JOIN missoes m ON p.missao_id = m.id
-            WHERE m.status_atual IN ('APROVADA', 'SAT ATENDIDA', 'SAT_ATENDIDA', 'SAT PENDENTE', 'INDICADO', 'PENDENTE DE ALOCAÇÃO')
-            """
+            f"""
+            SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
+            FROM missoes m
+            LEFT JOIN missoes_participantes p ON m.id = p.missao_id
+            {st_join}
+            {f_where_st} {st_extra}
+              AND m.status_atual IN ('APROVADA', 'SAT ATENDIDA', 'SAT_ATENDIDA', 'SAT PENDENTE', 'INDICADO', 'PENDENTE DE ALOCAÇÃO')
+            """,
+            st_params
         ).fetchone()["cnt"]
 
         # 4. QUANTOS SERVIDORES NO STATUS MISSÃO CONCLUÍDA
         conc_srv = conn.execute(
-            """
-            SELECT COUNT(DISTINCT p.servidor_matricula) as cnt
-            FROM missoes_participantes p
-            JOIN missoes m ON p.missao_id = m.id
-            WHERE m.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído')
-            """
+            f"""
+            SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
+            FROM missoes m
+            LEFT JOIN missoes_participantes p ON m.id = p.missao_id
+            {st_join}
+            {f_where_st} {st_extra}
+              AND m.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído')
+            """,
+            st_params
         ).fetchone()["cnt"]
 
         # Diária padrão atual
@@ -355,7 +381,8 @@ def get_dashboard_summary(
                 tipo="PERIGO",
                 titulo="Missão Próxima sem PCDP Cadastrada",
                 mensagem=f"A missão '{sp['titulo']}' inicia em {sp['data_inicio']} e ainda não possui número de PCDP lançado no SCDP.",
-                missao_codigo=sp["codigo_missao"]
+                missao_codigo=sp["codigo_missao"],
+                codigo_missao=sp["codigo_missao"]
             ))
 
         # 2. Missões finalizadas com prestação de contas pendente (> 5 dias após retorno)
@@ -377,7 +404,8 @@ def get_dashboard_summary(
                 tipo="ALERTA",
                 titulo="Prazo de Prestação de Contas Excedido",
                 mensagem=f"A missão '{ppc['titulo']}' encerrou em {ppc['data_termino']} e requer homologação de bilhetes e relatório de conclusão.",
-                missao_codigo=ppc["codigo_missao"]
+                missao_codigo=ppc["codigo_missao"],
+                codigo_missao=ppc["codigo_missao"]
             ))
 
         # 3. Servidores com duplicidade/sobreposição de missões ativas
@@ -414,19 +442,22 @@ def get_dashboard_summary(
         aereos_criticos = conn.execute(
             """
             SELECT m.codigo_missao, m.titulo, m.data_inicio, m.data_termino, m.status_atual,
-                   s.nome_completo as servidor_nome, s.matricula as servidor_mat,
-                   p.meio_transporte, p.localizador_aereo, p.numero_eticket
+                   COALESCE(s.nome_completo, sm.nome_completo, 'Policial Designado') as servidor_nome,
+                   COALESCE(s.matricula, sm.matricula, m.missionario_matricula, '-') as servidor_mat,
+                   COALESCE(p.meio_transporte, m.meio_transporte) as meio_transporte,
+                   p.localizador_aereo, p.numero_eticket
             FROM missoes m
-            JOIN missoes_participantes p ON m.id = p.missao_id
-            JOIN servidores s ON p.servidor_matricula = s.matricula
+            LEFT JOIN missoes_participantes p ON m.id = p.missao_id
+            LEFT JOIN servidores s ON p.servidor_matricula = s.matricula
+            LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
             WHERE m.status_atual NOT IN ('CANCELADA', 'REJEITADA', 'CONCLUIDA', 'CONCLUIDO')
-              AND (m.meio_transporte = 'AEREO' OR p.meio_transporte = 'AEREO' OR p.valor_passagem_aerea > 0)
+              AND (m.meio_transporte = 'AEREO' OR p.meio_transporte = 'AEREO' OR (p.valor_passagem_aerea IS NOT NULL AND p.valor_passagem_aerea > 0) OR m.custo_estimado_passagens > 0)
               AND (
                   (m.data_inicio >= ? AND m.data_inicio <= ?)
                   OR
                   (m.data_termino >= ? AND m.data_termino <= ?)
               )
-            ORDER BY m.data_inicio ASC, s.nome_completo ASC
+            ORDER BY m.data_inicio ASC, servidor_nome ASC
             """,
             (hoje_str, data_limite_aereo, hoje_str, data_limite_aereo)
         ).fetchall()
@@ -442,7 +473,9 @@ def get_dashboard_summary(
                 tipo="ALERTA",
                 titulo=f"Emissão de Bilhete Aéreo (Prazo Crítico: {alerta_aereo_dias} dias)",
                 mensagem=f"Servidor(es) com voo programado: {', '.join(nomes)}. Missão '{m_info['titulo']}' (Início: {m_info['data_inicio']}, Término: {m_info['data_termino']}). Verificar bilhete e localizador.",
-                missao_codigo=cod
+                missao_codigo=cod,
+                codigo_missao=cod,
+                servidores_nomes=nomes
             ))
 
     return DashboardSummary(
@@ -464,7 +497,11 @@ def get_dashboard_summary(
         servidores_cadastrar_scdp=scdp_srv,
         servidores_prestacao_contas_pendente=pc_srv,
         servidores_om_pendente=om_srv,
-        servidores_missao_concluida=conc_srv
+        servidores_missao_concluida=conc_srv,
+        servidores_status_scdp=scdp_srv,
+        servidores_status_prestacao_contas=pc_srv,
+        servidores_status_om_pendente=om_srv,
+        servidores_status_concluida=conc_srv
     )
 
 @router.get("/charts")
@@ -641,8 +678,11 @@ def get_dashboard_charts(
         {
             "setor": r["setor"],
             "passagens": round(float(r["passagens"]), 2),
+            "total_passagens": round(float(r["passagens"]), 2),
             "diarias": round(float(r["diarias"]), 2),
-            "total": round(float(r["total"]), 2)
+            "total_diarias": round(float(r["diarias"]), 2),
+            "total": round(float(r["total"]), 2),
+            "total_geral": round(float(r["total"]), 2)
         }
         for r in passagens_setores
     ]
@@ -651,8 +691,11 @@ def get_dashboard_charts(
         {
             "unidade": r["unidade"],
             "passagens": round(float(r["passagens"]), 2),
+            "total_passagens": round(float(r["passagens"]), 2),
             "diarias": round(float(r["diarias"]), 2),
-            "total": round(float(r["total"]), 2)
+            "total_diarias": round(float(r["diarias"]), 2),
+            "total": round(float(r["total"]), 2),
+            "total_geral": round(float(r["total"]), 2)
         }
         for r in passagens_unidades
     ]

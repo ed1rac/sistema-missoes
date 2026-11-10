@@ -166,7 +166,7 @@
    TEMAS INSTITUCIONAIS: AZUL PF (Padrão), GOV CLARO, BLACK OPS, ESMERALDA, AMBER, CYBER, PLATINA
    ============================================================================== */
 
-/* 1. TEMA CLARO INSTITUCIONAL (GOV CLARO) - CORREÇÃO DE CONTRASTE E VISIBILIDADE */
+/* 1. TEMA CLARO INSTITUCIONAL (GOV CLARO) - CORREÇÃO TOTAL DE CONTRASTE E VISIBILIDADE */
 body.theme-gov-claro {
   background-color: #f1f5f9 !important;
   color: #0f172a !important;
@@ -179,68 +179,129 @@ body.theme-gov-claro aside {
 
 body.theme-gov-claro main {
   background-color: #f8fafc !important;
+  color: #0f172a !important;
 }
 
 body.theme-gov-claro header {
   background-color: #ffffff !important;
-  border-bottom-color: #e2e8f0 !important;
+  border-bottom-color: #cbd5e1 !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
-body.theme-gov-claro #page-title {
+body.theme-gov-claro header #page-title {
   color: #0b2046 !important;
 }
 
-body.theme-gov-claro .bg-slate-950,
-body.theme-gov-claro .bg-slate-950\/60,
-body.theme-gov-claro .bg-slate-950\/70,
-body.theme-gov-claro .bg-slate-950\/80,
-body.theme-gov-claro .bg-slate-900,
-body.theme-gov-claro .bg-slate-900\/80,
-body.theme-gov-claro .bg-slate-900\/90 {
-  background-color: #ffffff !important;
+body.theme-gov-claro header .bg-slate-800,
+body.theme-gov-claro header .bg-slate-800\/80,
+body.theme-gov-claro header .bg-slate-900 {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
   color: #1e293b !important;
+}
+
+body.theme-gov-claro header .text-slate-400,
+body.theme-gov-claro header .text-slate-300 {
+  color: #334155 !important;
+}
+
+/* Containers e Cards em fundo claro */
+body.theme-gov-claro main .bg-slate-950,
+body.theme-gov-claro main .bg-slate-950\/60,
+body.theme-gov-claro main .bg-slate-950\/70,
+body.theme-gov-claro main .bg-slate-950\/80,
+body.theme-gov-claro main .bg-slate-900,
+body.theme-gov-claro main .bg-slate-900\/80,
+body.theme-gov-claro main .bg-slate-900\/90,
+body.theme-gov-claro main .bg-slate-850,
+body.theme-gov-claro #modal-content,
+body.theme-gov-claro #modal-content .bg-slate-950,
+body.theme-gov-claro #modal-content .bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
   border-color: #cbd5e1 !important;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
 }
 
-/* Textos em fundo claro */
-body.theme-gov-claro h1:not(aside *):not(button *),
-body.theme-gov-claro h2:not(aside *):not(button *),
-body.theme-gov-claro h3:not(aside *):not(button *),
-body.theme-gov-claro h4:not(aside *):not(button *),
-body.theme-gov-claro p.text-white,
-body.theme-gov-claro th,
-body.theme-gov-claro td.font-medium,
-body.theme-gov-claro label {
+/* Resolução crítica: todos os textos brancos ou cinzas claros em cards/modais tornam-se escuros */
+body.theme-gov-claro main *:not(aside *):not(button.bg-pf-700):not(button.bg-blue-600):not(button.bg-emerald-600):not(button.bg-red-600):not(button.bg-purple-600).text-white,
+body.theme-gov-claro #modal-content *:not(button.bg-pf-700):not(button.bg-blue-600):not(button.bg-emerald-600):not(button.bg-red-600):not(button.bg-purple-600).text-white,
+body.theme-gov-claro main p.text-white,
+body.theme-gov-claro main span.text-white,
+body.theme-gov-claro main div.text-white,
+body.theme-gov-claro main h1,
+body.theme-gov-claro main h2,
+body.theme-gov-claro main h3,
+body.theme-gov-claro main h4,
+body.theme-gov-claro main h5,
+body.theme-gov-claro #modal-content h1,
+body.theme-gov-claro #modal-content h2,
+body.theme-gov-claro #modal-content h3,
+body.theme-gov-claro #modal-content h4,
+body.theme-gov-claro #modal-content h5 {
   color: #0f172a !important;
 }
 
-body.theme-gov-claro .text-slate-400,
-body.theme-gov-claro .text-slate-500 {
+body.theme-gov-claro main .text-slate-200,
+body.theme-gov-claro main .text-slate-300,
+body.theme-gov-claro #modal-content .text-slate-200,
+body.theme-gov-claro #modal-content .text-slate-300 {
+  color: #1e293b !important;
+}
+
+body.theme-gov-claro main .text-slate-400,
+body.theme-gov-claro main .text-slate-500,
+body.theme-gov-claro #modal-content .text-slate-400,
+body.theme-gov-claro #modal-content .text-slate-500 {
   color: #475569 !important;
 }
 
-body.theme-gov-claro .border-slate-800,
-body.theme-gov-claro .border-slate-700 {
+body.theme-gov-claro main th,
+body.theme-gov-claro #modal-content th {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border-bottom-color: #cbd5e1 !important;
+}
+
+body.theme-gov-claro main td,
+body.theme-gov-claro #modal-content td {
+  color: #1e293b !important;
   border-color: #e2e8f0 !important;
 }
 
-body.theme-gov-claro .divide-slate-800\/60 > * {
+body.theme-gov-claro main .border-slate-800,
+body.theme-gov-claro main .border-slate-700,
+body.theme-gov-claro main .border-slate-850,
+body.theme-gov-claro #modal-content .border-slate-800,
+body.theme-gov-claro #modal-content .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+body.theme-gov-claro main .divide-slate-800\/60 > *,
+body.theme-gov-claro #modal-content .divide-slate-800\/60 > * {
   border-color: #e2e8f0 !important;
 }
 
-/* Inputs e Selects no tema claro com alta nitidez */
+/* Inputs, Selects e Textareas com alta nitidez e contraste no tema claro */
 body.theme-gov-claro input:not([type="checkbox"]):not([type="radio"]),
 body.theme-gov-claro select,
 body.theme-gov-claro textarea {
   background-color: #ffffff !important;
   color: #0f172a !important;
-  border: 1px solid #94a3b8 !important;
+  border: 1.5px solid #94a3b8 !important;
+  border-radius: 0.5rem;
+}
+
+body.theme-gov-claro input:focus,
+body.theme-gov-claro select:focus,
+body.theme-gov-claro textarea:focus {
+  border-color: #2563eb !important;
+  outline: 2px solid #93c5fd !important;
 }
 
 body.theme-gov-claro input::placeholder,
 body.theme-gov-claro textarea::placeholder {
-  color: #94a3b8 !important;
+  color: #64748b !important;
 }
 
 body.theme-gov-claro select option {
@@ -248,38 +309,77 @@ body.theme-gov-claro select option {
   color: #0f172a !important;
 }
 
-/* Proteção dos botões para manter legibilidade total */
-body.theme-gov-claro button.bg-pf-700,
-body.theme-gov-claro button.bg-emerald-600,
-body.theme-gov-claro button.bg-blue-600,
-body.theme-gov-claro button.bg-red-600,
-body.theme-gov-claro button.bg-amber-600,
-body.theme-gov-claro button.bg-purple-600 {
-  color: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
+/* Botões institucionais e controles */
 body.theme-gov-claro button.bg-slate-800,
-body.theme-gov-claro button.bg-slate-900 {
+body.theme-gov-claro button.bg-slate-900,
+body.theme-gov-claro button.bg-slate-950,
+body.theme-gov-claro .bg-slate-800.nav-btn:not(.active) {
   background-color: #e2e8f0 !important;
-  color: #1e293b !important;
+  color: #0f172a !important;
   border: 1px solid #cbd5e1 !important;
 }
 
 body.theme-gov-claro button.bg-slate-800:hover,
-body.theme-gov-claro button.bg-slate-900:hover {
+body.theme-gov-claro button.bg-slate-900:hover,
+body.theme-gov-claro button.bg-slate-950:hover {
   background-color: #cbd5e1 !important;
+  color: #000000 !important;
+}
+
+/* Botões primários com cores fortes mantêm texto branco de alta legibilidade */
+body.theme-gov-claro button.bg-pf-700,
+body.theme-gov-claro button.bg-blue-600,
+body.theme-gov-claro button.bg-blue-700,
+body.theme-gov-claro button.bg-emerald-600,
+body.theme-gov-claro button.bg-emerald-700,
+body.theme-gov-claro button.bg-red-600,
+body.theme-gov-claro button.bg-red-700,
+body.theme-gov-claro button.bg-amber-600,
+body.theme-gov-claro button.bg-amber-700,
+body.theme-gov-claro button.bg-purple-600,
+body.theme-gov-claro button.bg-purple-700 {
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+body.theme-gov-claro button.bg-pf-gold {
   color: #0f172a !important;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 body.theme-gov-claro tr:hover {
   background-color: #f1f5f9 !important;
 }
 
+/* Modais no tema claro */
 body.theme-gov-claro #modal-content {
   background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
+  border-color: #94a3b8 !important;
   color: #0f172a !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+body.theme-gov-claro #modal-content label {
+  color: #334155 !important;
+  font-weight: 600;
+}
+
+body.theme-gov-claro #submodal-novo-servidor > div {
+  background-color: #ffffff !important;
+  border-color: #C69214 !important;
+  color: #0f172a !important;
+}
+
+body.theme-gov-claro #submodal-novo-servidor input,
+body.theme-gov-claro #submodal-novo-servidor select {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.theme-gov-claro #submodal-novo-servidor label {
+  color: #334155 !important;
 }
 
 /* 2. TEMA TÁTICO BLACK OPS */

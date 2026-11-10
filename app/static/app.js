@@ -474,17 +474,25 @@ async function renderDashboard(container) {
               <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Status da Missão (Oficial)</label>
               <select id="dash-filtro-status" onchange="aplicarFiltrosDashboard()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
                 <option value="">Todos os Status</option>
-                <option value="Indicado" ${DASHBOARD_FILTERS.status === 'Indicado' ? 'selected' : ''}>Indicado</option>
-                <option value="Pendente de Alocação" ${DASHBOARD_FILTERS.status === 'Pendente de Alocação' ? 'selected' : ''}>Pendente de Alocação</option>
-                <option value="SAT pendente" ${DASHBOARD_FILTERS.status === 'SAT pendente' ? 'selected' : ''}>SAT pendente</option>
-                <option value="SAT Atendida" ${DASHBOARD_FILTERS.status === 'SAT Atendida' ? 'selected' : ''}>SAT Atendida</option>
-                <option value="SAT Recusada" ${DASHBOARD_FILTERS.status === 'SAT Recusada' ? 'selected' : ''}>SAT Recusada</option>
-                <option value="SAT Reiterada" ${DASHBOARD_FILTERS.status === 'SAT Reiterada' ? 'selected' : ''}>SAT Reiterada</option>
-                <option value="OM EMITIDA" ${DASHBOARD_FILTERS.status === 'OM EMITIDA' ? 'selected' : ''}>OM EMITIDA</option>
-                <option value="PCDP CADASTRADA" ${DASHBOARD_FILTERS.status === 'PCDP CADASTRADA' ? 'selected' : ''}>PCDP CADASTRADA</option>
-                <option value="PCDP ENCAMINHADA" ${DASHBOARD_FILTERS.status === 'PCDP ENCAMINHADA' ? 'selected' : ''}>PCDP ENCAMINHADA</option>
-                <option value="PCDP PRESTAR CONTAS" ${DASHBOARD_FILTERS.status === 'PCDP PRESTAR CONTAS' ? 'selected' : ''}>PCDP PRESTAR CONTAS</option>
-                <option value="Concluído" ${DASHBOARD_FILTERS.status === 'Concluído' ? 'selected' : ''}>Concluído</option>
+                <optgroup label="Fluxos Agregados">
+                  <option value="CADASTRAR_SCDP" ${DASHBOARD_FILTERS.status === 'CADASTRAR_SCDP' ? 'selected' : ''}>[Etapa] Cadastrar SCDP (OM/PCDP)</option>
+                  <option value="PRESTACAO_CONTAS_PENDENTE" ${DASHBOARD_FILTERS.status === 'PRESTACAO_CONTAS_PENDENTE' ? 'selected' : ''}>[Etapa] Prestação Contas Pendente</option>
+                  <option value="OM_PENDENTE" ${DASHBOARD_FILTERS.status === 'OM_PENDENTE' ? 'selected' : ''}>[Etapa] OM Pendente (SAT Atendida)</option>
+                  <option value="CONCLUIDA" ${DASHBOARD_FILTERS.status === 'CONCLUIDA' ? 'selected' : ''}>[Etapa] Missão Concluída</option>
+                </optgroup>
+                <optgroup label="Status Oficiais">
+                  <option value="Indicado" ${DASHBOARD_FILTERS.status === 'Indicado' ? 'selected' : ''}>Indicado</option>
+                  <option value="Pendente de Alocação" ${DASHBOARD_FILTERS.status === 'Pendente de Alocação' ? 'selected' : ''}>Pendente de Alocação</option>
+                  <option value="SAT pendente" ${DASHBOARD_FILTERS.status === 'SAT pendente' ? 'selected' : ''}>SAT pendente</option>
+                  <option value="SAT Atendida" ${DASHBOARD_FILTERS.status === 'SAT Atendida' ? 'selected' : ''}>SAT Atendida</option>
+                  <option value="SAT Recusada" ${DASHBOARD_FILTERS.status === 'SAT Recusada' ? 'selected' : ''}>SAT Recusada</option>
+                  <option value="SAT Reiterada" ${DASHBOARD_FILTERS.status === 'SAT Reiterada' ? 'selected' : ''}>SAT Reiterada</option>
+                  <option value="OM EMITIDA" ${DASHBOARD_FILTERS.status === 'OM EMITIDA' ? 'selected' : ''}>OM EMITIDA</option>
+                  <option value="PCDP CADASTRADA" ${DASHBOARD_FILTERS.status === 'PCDP CADASTRADA' ? 'selected' : ''}>PCDP CADASTRADA</option>
+                  <option value="PCDP ENCAMINHADA" ${DASHBOARD_FILTERS.status === 'PCDP ENCAMINHADA' ? 'selected' : ''}>PCDP ENCAMINHADA</option>
+                  <option value="PCDP PRESTAR CONTAS" ${DASHBOARD_FILTERS.status === 'PCDP PRESTAR CONTAS' ? 'selected' : ''}>PCDP PRESTAR CONTAS</option>
+                  <option value="Concluído" ${DASHBOARD_FILTERS.status === 'Concluído' ? 'selected' : ''}>Concluído</option>
+                </optgroup>
               </select>
             </div>
 
@@ -601,46 +609,46 @@ async function renderDashboard(container) {
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <!-- 1. Cadastrar SCDP -->
-            <div onclick="filtrarPorStatusRapido('OM EMITIDA')"
+            <div onclick="filtrarPorStatusRapido('CADASTRAR_SCDP')"
                  class="cursor-pointer bg-slate-900 hover:bg-slate-850 p-4 rounded-xl border border-blue-900/60 hover:border-blue-500 transition shadow">
               <div class="flex items-center justify-between">
                 <span class="text-[10px] font-bold uppercase text-blue-400">Cadastrar SCDP</span>
                 <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
               </div>
-              <p class="text-2xl font-black text-white mt-1">${summary.servidores_status_scdp || 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
+              <p class="text-2xl font-black text-white mt-1">${summary.servidores_cadastrar_scdp ?? summary.servidores_status_scdp ?? 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
               <p class="text-[10px] text-slate-400 mt-1">OM Emitida • Pendente SCDP/PCDP</p>
             </div>
 
             <!-- 2. Prestação Contas Pendente -->
-            <div onclick="filtrarPorStatusRapido('PCDP PRESTAR CONTAS')"
+            <div onclick="filtrarPorStatusRapido('PRESTACAO_CONTAS_PENDENTE')"
                  class="cursor-pointer bg-slate-900 hover:bg-slate-850 p-4 rounded-xl border border-orange-900/60 hover:border-orange-500 transition shadow">
               <div class="flex items-center justify-between">
                 <span class="text-[10px] font-bold uppercase text-orange-400">Prestação Contas Pendente</span>
                 <span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
               </div>
-              <p class="text-2xl font-black text-white mt-1">${summary.servidores_status_prestacao_contas || 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
+              <p class="text-2xl font-black text-white mt-1">${summary.servidores_prestacao_contas_pendente ?? summary.servidores_status_prestacao_contas ?? 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
               <p class="text-[10px] text-slate-400 mt-1">Retorno de Missão • Prestar Contas</p>
             </div>
 
             <!-- 3. OM Pendente -->
-            <div onclick="filtrarPorStatusRapido('SAT Atendida')"
+            <div onclick="filtrarPorStatusRapido('OM_PENDENTE')"
                  class="cursor-pointer bg-slate-900 hover:bg-slate-850 p-4 rounded-xl border border-amber-900/60 hover:border-amber-500 transition shadow">
               <div class="flex items-center justify-between">
                 <span class="text-[10px] font-bold uppercase text-amber-400">OM Pendente</span>
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
               </div>
-              <p class="text-2xl font-black text-white mt-1">${summary.servidores_status_om_pendente || 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
+              <p class="text-2xl font-black text-white mt-1">${summary.servidores_om_pendente ?? summary.servidores_status_om_pendente ?? 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
               <p class="text-[10px] text-slate-400 mt-1">SAT Atendida • Aguardando Emissão OM</p>
             </div>
 
             <!-- 4. Missão Concluída -->
-            <div onclick="filtrarPorStatusRapido('Concluído')"
+            <div onclick="filtrarPorStatusRapido('CONCLUIDA')"
                  class="cursor-pointer bg-slate-900 hover:bg-slate-850 p-4 rounded-xl border border-emerald-900/60 hover:border-emerald-500 transition shadow">
               <div class="flex items-center justify-between">
                 <span class="text-[10px] font-bold uppercase text-emerald-400">Missão Concluída</span>
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
               </div>
-              <p class="text-2xl font-black text-white mt-1">${summary.servidores_status_concluida || 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
+              <p class="text-2xl font-black text-white mt-1">${summary.servidores_missao_concluida ?? summary.servidores_status_concluida ?? 0} <span class="text-xs font-normal text-slate-400">servidores</span></p>
               <p class="text-[10px] text-slate-400 mt-1">Ciclo Finalizado com Sucesso</p>
             </div>
           </div>
@@ -860,7 +868,7 @@ async function initializeDashboardCharts(qs) {
     const ctxPassagensUnid = document.getElementById("chart-passagens-unidade")?.getContext("2d");
     if (ctxPassagensUnid && chartsData.passagens_por_unidade) {
       const labels = chartsData.passagens_por_unidade.map(u => u.unidade);
-      const data = chartsData.passagens_por_unidade.map(u => u.total_passagens);
+      const data = chartsData.passagens_por_unidade.map(u => (u.total_passagens !== undefined ? u.total_passagens : (u.passagens || 0)));
 
       CHART_INSTANCES.passagensUnidade = new Chart(ctxPassagensUnid, {
         type: "bar",
@@ -892,7 +900,7 @@ async function initializeDashboardCharts(qs) {
     const ctxPassagensSetor = document.getElementById("chart-passagens-setor")?.getContext("2d");
     if (ctxPassagensSetor && chartsData.passagens_por_setor) {
       const labels = chartsData.passagens_por_setor.map(s => s.setor);
-      const data = chartsData.passagens_por_setor.map(s => s.total_passagens);
+      const data = chartsData.passagens_por_setor.map(s => (s.total_passagens !== undefined ? s.total_passagens : (s.passagens || 0)));
 
       CHART_INSTANCES.passagensSetor = new Chart(ctxPassagensSetor, {
         type: "bar",
@@ -2211,6 +2219,7 @@ async function openModalNovaMissao() {
       valor_diaria_padrao: parseFloat(document.getElementById("nova-diaria-padrao").value || 425),
       responsavel_matricula: document.getElementById("nova-responsavel").value || null,
       missionario_matricula: missionarioMatricula,
+      servidores_matriculas: equipeMatriculas,
       servidores_equipe_matriculas: equipeMatriculas,
       numero_om: document.getElementById("nova-om").value.trim() || null,
       processo_sei: document.getElementById("nova-sei").value.trim() || null,
@@ -3428,6 +3437,8 @@ async function renderUnidades(container) {
                   <th class="py-3 px-3">Sigla</th>
                   <th class="py-3 px-3">Nome Extenso</th>
                   <th class="py-3 px-3">Município / UF</th>
+                  <th class="py-3 px-3">Valor Diária</th>
+                  <th class="py-3 px-3">Categoria</th>
                   <th class="py-3 px-3">Fronteira</th>
                   <th class="py-3 px-3">Status</th>
                   <th class="py-3 px-3 text-right">Ações</th>
@@ -3454,7 +3465,7 @@ async function renderUnidades(container) {
 
 function renderUnidadesRows(unidades) {
   if (!unidades || unidades.length === 0) {
-    return `<tr><td colspan="6" class="py-8 text-center text-slate-400">Nenhuma unidade encontrada.</td></tr>`;
+    return `<tr><td colspan="8" class="py-8 text-center text-slate-400">Nenhuma unidade encontrada.</td></tr>`;
   }
   const isAdmin = CURRENT_USER && CURRENT_USER.role === 'ADMIN';
   const prioritarias = ['SR/PF/PB', 'CGE/PF/PB', 'PAT/PF/PB'];
@@ -3469,6 +3480,12 @@ function renderUnidadesRows(unidades) {
         </td>
         <td class="py-3 px-3 font-semibold text-slate-200">${u.nome_extenso || '-'}</td>
         <td class="py-3 px-3 text-slate-300">${u.municipio || '-'} / <span class="font-bold text-slate-400">${u.uf || '-'}</span></td>
+        <td class="py-3 px-3 font-mono font-bold text-amber-300">R$ ${(u.valor_diaria || 380).toFixed(2)}</td>
+        <td class="py-3 px-3">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-300">
+            ${u.categoria_diaria || 'CAPITAIS'}
+          </span>
+        </td>
         <td class="py-3 px-3">
           ${u.is_fronteira ? 
             `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 border border-purple-800 text-purple-300">FRONTEIRA</span>` : 
@@ -3523,6 +3540,22 @@ function applyUnidadesFilter(allUnidades) {
   }
 }
 
+function aoMudarCategoriaUnidade(catSelectId, diariaInputId, tipoSelectId) {
+  const cat = document.getElementById(catSelectId)?.value;
+  const inputDiaria = document.getElementById(diariaInputId);
+  const selectTipo = document.getElementById(tipoSelectId);
+  if (!inputDiaria) return;
+  if (cat === "INTERIOR") {
+    inputDiaria.value = "335.00";
+    if (selectTipo) selectTipo.value = "DELEGACIA";
+  } else if (cat === "CAPITAIS_ESPECIAIS") {
+    inputDiaria.value = "425.00";
+  } else {
+    inputDiaria.value = "380.00";
+    if (selectTipo) selectTipo.value = "SUPERINTENDENCIA";
+  }
+}
+
 function openModalNovaUnidade() {
   const modalContainer = document.getElementById("modal-container");
   const modalContent = document.getElementById("modal-content");
@@ -3553,6 +3586,29 @@ function openModalNovaUnidade() {
             <label class="block text-slate-400 mb-1">Município Sede</label>
             <input type="text" id="unid-municipio" required placeholder="Ex: João Pessoa" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
           </div>
+
+          <!-- CATEGORIA E VALOR DA DIÁRIA CONFORME REQUISITOS OFICIAIS -->
+          <div>
+            <label class="block text-slate-400 mb-1">Categoria de Diária (Tabela Federal)</label>
+            <select id="unid-categoria" onchange="aoMudarCategoriaUnidade('unid-categoria', 'unid-diaria', 'unid-tipo')" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+              <option value="INTERIOR">Interior do País (R$ 335,00)</option>
+              <option value="CAPITAIS" selected>Capitais dos Estados (R$ 380,00)</option>
+              <option value="CAPITAIS_ESPECIAIS">Capitais DF, RJ, SP, AM / Brasília (R$ 425,00)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Valor da Diária Desta Unidade (R$)</label>
+            <input type="number" id="unid-diaria" step="0.50" value="380.00" required class="w-full bg-slate-900 border border-pf-gold rounded-lg p-2 text-amber-300 font-bold">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-slate-400 mb-1">Tipo de Unidade Operacional</label>
+            <select id="unid-tipo" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              <option value="SUPERINTENDENCIA" selected>Superintendência Regional (SR)</option>
+              <option value="DELEGACIA">Delegacia (DPF)</option>
+              <option value="DIRETORIA_DIVISAO">Diretoria / Divisão (Brasília)</option>
+            </select>
+          </div>
+
           <div class="flex items-center space-x-2 pt-2">
             <input type="checkbox" id="unid-fronteira" class="rounded bg-slate-900 border-slate-700 text-pf-gold focus:ring-0">
             <label for="unid-fronteira" class="text-slate-200 font-semibold cursor-pointer">Unidade Localizada em Fronteira</label>
@@ -3578,6 +3634,9 @@ function openModalNovaUnidade() {
       nome_extenso: document.getElementById("unid-nome").value.trim(),
       municipio: document.getElementById("unid-municipio").value.trim(),
       uf: document.getElementById("unid-uf").value.trim().toUpperCase(),
+      valor_diaria: parseFloat(document.getElementById("unid-diaria").value || 380),
+      categoria_diaria: document.getElementById("unid-categoria").value,
+      tipo_unidade: document.getElementById("unid-tipo").value,
       is_fronteira: document.getElementById("unid-fronteira").checked,
       ativo: document.getElementById("unid-ativo").checked
     };
@@ -3623,6 +3682,29 @@ function openModalEditarUnidade(u) {
             <label class="block text-slate-400 mb-1">UF (Estado)</label>
             <input type="text" id="edit-unid-uf" value="${u.uf || ''}" required maxlength="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono uppercase">
           </div>
+
+          <!-- CATEGORIA E VALOR DA DIÁRIA DA UNIDADE -->
+          <div>
+            <label class="block text-slate-400 mb-1">Categoria de Diária (Tabela Federal)</label>
+            <select id="edit-unid-categoria" onchange="aoMudarCategoriaUnidade('edit-unid-categoria', 'edit-unid-diaria', 'edit-unid-tipo')" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+              <option value="INTERIOR" ${u.categoria_diaria === 'INTERIOR' ? 'selected' : ''}>Interior do País (R$ 335,00)</option>
+              <option value="CAPITAIS" ${(!u.categoria_diaria || u.categoria_diaria === 'CAPITAIS') ? 'selected' : ''}>Capitais dos Estados (R$ 380,00)</option>
+              <option value="CAPITAIS_ESPECIAIS" ${u.categoria_diaria === 'CAPITAIS_ESPECIAIS' ? 'selected' : ''}>Capitais DF, RJ, SP, AM / Brasília (R$ 425,00)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Valor da Diária Desta Unidade (R$)</label>
+            <input type="number" id="edit-unid-diaria" step="0.50" value="${(u.valor_diaria || 380).toFixed(2)}" required class="w-full bg-slate-900 border border-pf-gold rounded-lg p-2 text-amber-300 font-bold">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-slate-400 mb-1">Tipo de Unidade Operacional</label>
+            <select id="edit-unid-tipo" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              <option value="SUPERINTENDENCIA" ${u.tipo_unidade === 'SUPERINTENDENCIA' ? 'selected' : ''}>Superintendência Regional (SR)</option>
+              <option value="DELEGACIA" ${u.tipo_unidade === 'DELEGACIA' ? 'selected' : ''}>Delegacia (DPF)</option>
+              <option value="DIRETORIA_DIVISAO" ${u.tipo_unidade === 'DIRETORIA_DIVISAO' ? 'selected' : ''}>Diretoria / Divisão (Brasília)</option>
+            </select>
+          </div>
+
           <div class="flex items-center space-x-2 pt-2">
             <input type="checkbox" id="edit-unid-fronteira" ${u.is_fronteira ? 'checked' : ''} class="rounded bg-slate-900 border-slate-700 text-pf-gold focus:ring-0">
             <label for="edit-unid-fronteira" class="text-slate-200 font-semibold cursor-pointer">Unidade Localizada em Fronteira</label>
@@ -3647,6 +3729,9 @@ function openModalEditarUnidade(u) {
       nome_extenso: document.getElementById("edit-unid-nome").value.trim(),
       municipio: document.getElementById("edit-unid-municipio").value.trim(),
       uf: document.getElementById("edit-unid-uf").value.trim().toUpperCase(),
+      valor_diaria: parseFloat(document.getElementById("edit-unid-diaria").value || 380),
+      categoria_diaria: document.getElementById("edit-unid-categoria").value,
+      tipo_unidade: document.getElementById("edit-unid-tipo").value,
       is_fronteira: document.getElementById("edit-unid-fronteira").checked,
       ativo: document.getElementById("edit-unid-ativo").checked
     };
@@ -3698,12 +3783,53 @@ async function reativarUnidade(unidId, sigla) {
 async function renderConfig(container) {
   container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando parâmetros...</div>`;
   try {
-    const configs = await apiFetch("/api/config");
+    const [configs, valoresDiarias] = await Promise.all([
+      apiFetch("/api/config"),
+      apiFetch("/api/missoes/meta/valores-diarias").catch(() => [])
+    ]);
+
     container.innerHTML = `
-      <div class="max-w-2xl mx-auto space-y-6 animate-fade-in">
+      <div class="max-w-3xl mx-auto space-y-6 animate-fade-in">
+        <!-- 1. TABELA SEPARADA DE VALORES OFICIAIS DE DIÁRIAS (DECRETO/PORTARIA FEDERAL) -->
         <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
-          <h3 class="text-base font-bold text-white mb-1">Parâmetros Gerais da Plataforma</h3>
-          <p class="text-xs text-slate-400 mb-6">Valores de diária base e parâmetros de alertas corporativos</p>
+          <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-base font-bold text-white">Tabela de Valores Oficiais de Diárias</h3>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-pf-gold border border-amber-500/30">Tabela Federal Oficial</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">3 faixas oficiais que determinam as diárias das unidades da Polícia Federal</p>
+            </div>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            ${valoresDiarias.map(v => `
+              <div class="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="space-y-0.5">
+                  <div class="flex items-center space-x-2">
+                    <span class="font-bold text-white font-mono text-sm">${v.categoria}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${v.id}</span>
+                  </div>
+                  <p class="text-slate-400 text-xs">${v.descricao}</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <span class="text-slate-400 text-xs font-semibold">R$</span>
+                  <input type="number" step="0.50" id="val-diaria-${v.categoria}" value="${parseFloat(v.valor).toFixed(2)}"
+                         class="w-28 bg-slate-950 border border-pf-gold rounded-lg px-3 py-1.5 text-xs text-amber-300 font-mono font-bold text-right">
+                  <button onclick="salvarValorDiariaOficial('${v.categoria}')"
+                          class="px-3 py-1.5 bg-pf-gold hover:bg-yellow-400 text-slate-950 rounded-lg font-bold text-xs transition shadow">
+                    Atualizar
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- 2. PARÂMETROS GERAIS DA PLATAFORMA -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <h3 class="text-base font-bold text-white mb-1">Parâmetros Operacionais e Alertas</h3>
+          <p class="text-xs text-slate-400 mb-6">Prazos de alertas de passagens aéreas e configurações institucionais</p>
 
           <div class="space-y-4 text-xs">
             ${configs.map(c => `
@@ -3728,6 +3854,26 @@ async function renderConfig(container) {
     `;
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar configurações: ${err.message}</div>`;
+  }
+}
+
+async function salvarValorDiariaOficial(categoria) {
+  const input = document.getElementById(`val-diaria-${categoria}`);
+  const valor = parseFloat(input?.value || 0);
+  if (!valor || valor <= 0) {
+    alert("Informe um valor válido de diária.");
+    return;
+  }
+  try {
+    await apiFetch(`/api/missoes/meta/valores-diarias/${categoria}`, {
+      method: "PUT",
+      body: JSON.stringify({ valor })
+    });
+    alert(`Valor da categoria '${categoria}' atualizado com sucesso para R$ ${valor.toFixed(2)}! As unidades vinculadas foram atualizadas.`);
+    METADATA_CACHE.unidades = await apiFetch("/api/missoes/meta/unidades");
+    renderConfig(document.getElementById("view-container"));
+  } catch (err) {
+    alert(`Erro ao atualizar valor de diária: ${err.message}`);
   }
 }
 

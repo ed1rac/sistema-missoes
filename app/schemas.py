@@ -158,6 +158,7 @@ class MissaoBase(BaseModel):
 
 class MissaoCreate(MissaoBase):
     servidores_matriculas: Optional[List[str]] = None
+    servidores_equipe_matriculas: Optional[List[str]] = None
 
 class MissaoUpdate(BaseModel):
     titulo: Optional[str] = None
@@ -272,8 +273,10 @@ class AlertItem(BaseModel):
     titulo: str
     mensagem: str
     missao_codigo: Optional[str] = None
+    codigo_missao: Optional[str] = None
     missao_id: Optional[str] = None
     servidor_matricula: Optional[str] = None
+    servidores_nomes: Optional[List[str]] = None
 
 class DashboardSummary(BaseModel):
     total_missoes: int
@@ -296,3 +299,8 @@ class DashboardSummary(BaseModel):
     servidores_prestacao_contas_pendente: int = 0
     servidores_om_pendente: int = 0
     servidores_missao_concluida: int = 0
+    # Aliases compatíveis com frontend
+    servidores_status_scdp: int = 0
+    servidores_status_prestacao_contas: int = 0
+    servidores_status_om_pendente: int = 0
+    servidores_status_concluida: int = 0

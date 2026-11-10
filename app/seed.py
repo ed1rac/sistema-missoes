@@ -314,6 +314,52 @@ def seed_database(db_path: str = None):
                     (target_id, sigla, nome, mun, uf, front, v_diaria, cat, tipo_unid)
                 )
 
+        # Regra Oficial para todas as unidades cadastradas:
+        # - Todas as delegacias são interiores (R$ 335,00)
+        # - Todas as SRs são capitais (R$ 380,00) exceto DF, RJ, SP e AM (R$ 425,00)
+        # - Todas as divisões e diretorias são em Brasília/DF (R$ 425,00)
+        conn.execute("""
+            UPDATE orgao_unidades SET
+                valor_diaria = CASE
+                    WHEN uf IN ('DF', 'RJ', 'SP', 'AM') 
+                         OR sigla LIKE 'D%/PF' 
+                         OR sigla LIKE 'DITEC%' 
+                         OR sigla LIKE 'DLOG%' 
+                         OR sigla LIKE 'DGP%' 
+                         OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 425.00
+                    WHEN sigla LIKE 'DPF/%' 
+                         OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
+                         OR tipo_unidade = 'DELEGACIA' 
+                         OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 335.00
+                    ELSE 380.00
+                END,
+                categoria_diaria = CASE
+                    WHEN uf IN ('DF', 'RJ', 'SP', 'AM') 
+                         OR sigla LIKE 'D%/PF' 
+                         OR sigla LIKE 'DITEC%' 
+                         OR sigla LIKE 'DLOG%' 
+                         OR sigla LIKE 'DGP%' 
+                         OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 'CAPITAIS_ESPECIAIS'
+                    WHEN sigla LIKE 'DPF/%' 
+                         OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
+                         OR tipo_unidade = 'DELEGACIA' 
+                         OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 'INTERIOR'
+                    ELSE 'CAPITAIS'
+                END,
+                tipo_unidade = CASE
+                    WHEN sigla LIKE 'DPF/%' 
+                         OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
+                         OR tipo_unidade = 'DELEGACIA' 
+                         OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 'DELEGACIA'
+                    WHEN sigla LIKE 'D%/PF' 
+                         OR sigla LIKE 'DITEC%' 
+                         OR sigla LIKE 'DLOG%' 
+                         OR sigla LIKE 'DGP%' 
+                         OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 'DIRETORIA_DIVISAO'
+                    ELSE 'SUPERINTENDENCIA'
+                END;
+        """)
+
         # 4. Cargos da Carreira Policial e Administrativa
         cargos = [
             ("crg-01", "DPF", "Delegado de Polícia Federal", 1),
@@ -734,7 +780,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Fiscalização de crimes contra o patrimônio histórico, artístico e cultural no brejo paraibano.",
                 "tipo": "Operacional / Repressão", "solicitante": "SR/PF/PB", "destino": "SR/PF/PB", "setor": "DELEMAPH",
                 "localidade": "Areia e Bananeiras/PB", "inicio": "2026-11-03", "fim": "2026-11-13",
-                "resp": "33412", "miss": None, "modalidade": "EQUIPE", "status": "EM_ANDAMENTO", "diaria": 380.00,
+                "resp": "33412", "miss": None, "modalidade": "EQUIPE", "status": "PCDP PRESTAR CONTAS", "diaria": 380.00,
                 "transporte": "TERRESTRE",
                 "sat": "SAT-2026-00360", "om": "OM-2026-0340", "pcdp": "PCDP-001101/26",
                 "parts": [
@@ -747,7 +793,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Inspeção e apreensão de encomendas em centro de triagem dos Correios.",
                 "tipo": "Inteligência e Investigação", "solicitante": "DPF/CGE/PB", "destino": "SR/PF/PB", "setor": "DRE",
                 "localidade": "Campina Grande/PB", "inicio": "2026-11-09", "fim": "2026-11-19",
-                "resp": "35891", "miss": "38104", "modalidade": "INDIVIDUAL", "status": "EM_ANDAMENTO", "diaria": 380.00,
+                "resp": "35891", "miss": "38104", "modalidade": "INDIVIDUAL", "status": "PCDP ENCAMINHADA", "diaria": 380.00,
                 "transporte": "AEREO", "custo_passagem": 1300.00,
                 "sat": "SAT-2026-00375", "om": "OM-2026-0352", "pcdp": "PCDP-001102/26"
             },
@@ -757,7 +803,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Instrução pericial de urgência em sinistro no trecho sertanejo da BR-230.",
                 "tipo": "Perícia Oficial", "solicitante": "DPF/PAT/PB", "destino": "DPF/PAT/PB", "setor": "NUCRIM",
                 "localidade": "Pombal/PB", "inicio": "2026-11-16", "fim": "2026-11-25",
-                "resp": "38104", "miss": "41205", "modalidade": "INDIVIDUAL", "status": "EM_ANALISE", "diaria": 335.00,
+                "resp": "38104", "miss": "41205", "modalidade": "INDIVIDUAL", "status": "PCDP CADASTRADA", "diaria": 335.00,
                 "transporte": "TERRESTRE",
                 "sat": "SAT-2026-00390", "om": None, "pcdp": None
             },
@@ -769,7 +815,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Reforço no patrulhamento em terminais rodoviários e portuários de Cabedelo.",
                 "tipo": "Operacional / Repressão", "solicitante": "SR/PF/PB", "destino": "SR/PF/PB", "setor": "GPI",
                 "localidade": "João Pessoa e Cabedelo/PB", "inicio": "2026-12-07", "fim": "2026-12-22",
-                "resp": "33412", "miss": None, "modalidade": "EQUIPE", "status": "APROVADA", "diaria": 380.00,
+                "resp": "33412", "miss": None, "modalidade": "EQUIPE", "status": "OM EMITIDA", "diaria": 380.00,
                 "transporte": "AEREO", "custo_passagem": 1500.00,
                 "sat": "SAT-2026-00410", "om": "OM-2026-0388", "pcdp": "PCDP-001201/26",
                 "parts": [
@@ -782,7 +828,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Ação preventiva integrada com a PRF no entroncamento rodoviário de Campina Grande.",
                 "tipo": "Inteligência e Investigação", "solicitante": "SR/PF/PB", "destino": "SR/PF/PB", "setor": "SIP",
                 "localidade": "Campina Grande/PB", "inicio": "2026-12-14", "fim": "2026-12-24",
-                "resp": "35891", "miss": "43719", "modalidade": "INDIVIDUAL", "status": "SOLICITADA", "diaria": 380.00,
+                "resp": "35891", "miss": "43719", "modalidade": "INDIVIDUAL", "status": "SAT Atendida", "diaria": 380.00,
                 "transporte": "AEREO", "custo_passagem": 1750.00,
                 "sat": "SAT-2026-00425"
             },
@@ -792,7 +838,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Reunião de alinhamento com os chefes de delegacias descentralizadas da PB.",
                 "tipo": "Administrativa e Logística", "solicitante": "SR/PF/PB", "destino": "SR/PF/PB", "setor": "NAD",
                 "localidade": "João Pessoa/PB", "inicio": "2026-12-26", "fim": "2026-12-30",
-                "resp": "33412", "miss": "33412", "modalidade": "INDIVIDUAL", "status": "RASCUNHO", "diaria": 380.00,
+                "resp": "33412", "miss": "33412", "modalidade": "INDIVIDUAL", "status": "Indicado", "diaria": 380.00,
                 "transporte": "AEREO", "custo_passagem": 1900.00
             },
             {
@@ -801,7 +847,7 @@ def seed_database(db_path: str = None):
                 "justificativa": "Instalação de enlaces criptografados seguros e novos servidores corporativos na Paraíba.",
                 "tipo": "Administrativa e Logística", "solicitante": "SR/PF/PB", "destino": "SR/PF/PB", "setor": "NTI",
                 "localidade": "João Pessoa/PB", "inicio": "2026-12-10", "fim": "2026-12-18",
-                "resp": "33412", "miss": "43719", "modalidade": "INDIVIDUAL", "status": "APROVADA", "diaria": 380.00,
+                "resp": "33412", "miss": "43719", "modalidade": "INDIVIDUAL", "status": "Pendente de Alocação", "diaria": 380.00,
                 "transporte": "AEREO", "custo_passagem": 1650.00,
                 "sat": "SAT-2026-00430"
             }
