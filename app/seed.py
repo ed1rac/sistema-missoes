@@ -286,20 +286,33 @@ def seed_database(db_path: str = None):
             ("unid-09", "SR/PF/SP", "Superintendência Regional em São Paulo", "São Paulo", "SP", 0, 425.00, "CAPITAIS_ESPECIAIS", "SUPERINTENDENCIA")
         ]
         for uid, sigla, nome, mun, uf, front, v_diaria, cat, tipo_unid in unidades:
-            conn.execute(
-                """
-                INSERT INTO orgao_unidades (id, sigla, nome_extenso, municipio, uf, is_fronteira, valor_diaria, categoria_diaria, tipo_unidade, ativo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                ON CONFLICT(sigla) DO UPDATE SET
-                    nome_extenso=excluded.nome_extenso,
-                    municipio=excluded.municipio,
-                    uf=excluded.uf,
-                    valor_diaria=excluded.valor_diaria,
-                    categoria_diaria=excluded.categoria_diaria,
-                    tipo_unidade=excluded.tipo_unidade
-                """,
-                (uid, sigla, nome, mun, uf, front, v_diaria, cat, tipo_unid)
-            )
+            existing = conn.execute("SELECT id FROM orgao_unidades WHERE sigla = ?", (sigla,)).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE orgao_unidades SET
+                        nome_extenso = ?,
+                        municipio = ?,
+                        uf = ?,
+                        is_fronteira = ?,
+                        valor_diaria = ?,
+                        categoria_diaria = ?,
+                        tipo_unidade = ?,
+                        ativo = 1
+                    WHERE sigla = ?
+                    """,
+                    (nome, mun, uf, front, v_diaria, cat, tipo_unid, sigla)
+                )
+            else:
+                id_taken = conn.execute("SELECT id FROM orgao_unidades WHERE id = ?", (uid,)).fetchone()
+                target_id = uid if not id_taken else f"unid-{uuid.uuid4().hex[:8]}"
+                conn.execute(
+                    """
+                    INSERT INTO orgao_unidades (id, sigla, nome_extenso, municipio, uf, is_fronteira, valor_diaria, categoria_diaria, tipo_unidade, ativo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    """,
+                    (target_id, sigla, nome, mun, uf, front, v_diaria, cat, tipo_unid)
+                )
 
         # 4. Cargos da Carreira Policial e Administrativa
         cargos = [
