@@ -9,6 +9,9 @@ router = APIRouter(prefix="/api/auth", tags=["Autenticação"])
 
 @router.post("/login", response_model=TokenResponse)
 def login_json(credentials: UserLogin, request: Request):
+    user_ip = request.client.host if (request and request.client) else "127.0.0.1"
+    user_agent = request.headers.get("user-agent", "Desconhecido") if request else "Desconhecido"
+
     with get_db() as conn:
         user = conn.execute(
             "SELECT id, username, password_hash, full_name, email, role, ativo FROM usuarios WHERE username = ?",
@@ -16,12 +19,28 @@ def login_json(credentials: UserLogin, request: Request):
         ).fetchone()
 
     if not user or not verify_password(credentials.password, user["password_hash"]):
+        log_audit(
+            usuario_login=credentials.username,
+            usuario_ip=user_ip,
+            operacao="LOGIN_FAILED",
+            entidade_tabela="usuarios",
+            registro_id=None,
+            detalhes={"motivo": "Credenciais inválidas", "user_agent": user_agent}
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Nome de usuário ou senha incorretos."
         )
 
     if not user["ativo"]:
+        log_audit(
+            usuario_login=credentials.username,
+            usuario_ip=user_ip,
+            operacao="LOGIN_BLOCKED",
+            entidade_tabela="usuarios",
+            registro_id=user["id"],
+            detalhes={"motivo": "Conta desativada", "user_agent": user_agent}
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Conta de usuário inativa."
@@ -38,14 +57,21 @@ def login_json(credentials: UserLogin, request: Request):
 
     token = create_access_token({"sub": user["username"], "role": user["role"]})
     
-    # Auditoria de login
+    # Auditoria detalhada de logon no Horário Oficial de Brasília
     log_audit(
         usuario_login=user["username"],
-        usuario_ip=request.client.host if request.client else "127.0.0.1",
+        usuario_ip=user_ip,
         operacao="LOGIN",
         entidade_tabela="usuarios",
         registro_id=user["id"],
-        detalhes={"msg": "Login bem-sucedido"}
+        detalhes={
+            "msg": "Logon realizado com sucesso",
+            "nome_completo": user["full_name"],
+            "role": user["role"],
+            "email": user["email"],
+            "user_agent": user_agent,
+            "fuso_horario": "America/Sao_Paulo (BRT)"
+        }
     )
 
     return TokenResponse(access_token=token, token_type="bearer", user=user_out)

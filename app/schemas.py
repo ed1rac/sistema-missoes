@@ -12,6 +12,10 @@ class UserOut(BaseModel):
     email: Optional[str] = None
     role: str
     ativo: bool
+    is_active: bool = True
+
+    def model_post_init(self, __context: Any) -> None:
+        self.is_active = self.ativo
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -25,12 +29,22 @@ class UserCreate(BaseModel):
     email: Optional[str] = None
     role: str = "CADASTRADOR"  # ADMIN, GESTOR_NAC, CADASTRADOR, GERENCIAL, SERVIDOR
     ativo: bool = True
+    is_active: Optional[bool] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.is_active is not None:
+            self.ativo = self.is_active
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = None
     ativo: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.is_active is not None and self.ativo is None:
+            self.ativo = self.is_active
 
 class UserPasswordReset(BaseModel):
     nova_senha: Optional[str] = None

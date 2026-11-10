@@ -18,9 +18,10 @@ def test_unidades_pb_no_topo(client, admin_headers):
     assert unidades[2]["sigla"] == "PAT/PF/PB"
     assert unidades[2]["nome_extenso"] == "Delegacia de Polícia Federal em Patos/PB"
 
-    # Garantir ausência de referências a ANP
-    for u in unidades[:3]:
+    # Garantir ausência total de referências a ANP em todas as unidades
+    for u in unidades:
         assert u.get("orgao_gestor") != "ANP"
+        assert "ANP" not in u.get("sigla", "")
         assert "ANP" not in u.get("nome_extenso", "")
 
 
@@ -261,3 +262,188 @@ def test_dashboard_filtros_universais(client, admin_headers):
     assert "custos_por_mes" in data_charts
     assert "status_counts" in data_charts
     assert "tipo_counts" in data_charts
+
+
+def test_missao_individual_rejeita_multiplos_participantes(client, admin_headers):
+    """Missão com modalidade INDIVIDUAL rejeita inclusão manual de participantes adicionais."""
+    cod = "MIS-2027-IND-REJECT-ADD"
+    payload = {
+        "codigo_missao": cod,
+        "titulo": "Perícia Balística Individual 2027",
+        "tipo_missao": "Perícia Oficial",
+        "modalidade": "INDIVIDUAL",
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "CGE/PF/PB",
+        "localidade_descricao": "Campina Grande/PB",
+        "data_inicio": "2027-01-10",
+        "data_termino": "2027-01-15",
+        "valor_diaria_padrao": 425.00,
+        "responsavel_matricula": "10293",
+        "missionario_matricula": "41205",
+        "justificativa": "Missão individual exclusiva",
+        "status_atual": "RASCUNHO"
+    }
+    res_create = client.post("/api/missoes", json=payload, headers=admin_headers)
+    assert res_create.status_code == 201, res_create.text
+    missao_id = res_create.json()["id"]
+
+    # Tentativa de adicionar outro participante na missão individual deve retornar 400
+    res_add = client.post(
+        f"/api/missoes/{missao_id}/participantes",
+        json={
+            "servidor_matricula": "38104",
+            "papel": "Apoio Operacional",
+            "data_apresentacao": "2027-01-10",
+            "data_retorno": "2027-01-15"
+        },
+        headers=admin_headers
+    )
+    assert res_add.status_code == 400
+    assert "individual" in res_add.json()["detail"].lower()
+
+
+def test_missao_individual_conflito_ao_atualizar(client, admin_headers):
+    """Atualização de datas de missão individual detecta e bloqueia conflito de agenda do missionário."""
+    # Cria primeira missão para o servidor 38104 em 2027-02-01 a 2027-02-05
+    cod1 = "MIS-2027-IND-BASE"
+    payload1 = {
+        "codigo_missao": cod1,
+        "titulo": "Operação Base PB 2027",
+        "tipo_missao": "Operacional / Repressão",
+        "modalidade": "INDIVIDUAL",
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "PAT/PF/PB",
+        "localidade_descricao": "Patos/PB",
+        "data_inicio": "2027-02-01",
+        "data_termino": "2027-02-05",
+        "valor_diaria_padrao": 425.00,
+        "responsavel_matricula": "10293",
+        "missionario_matricula": "38104",
+        "justificativa": "Base",
+        "status_atual": "APROVADA"
+    }
+    res1 = client.post("/api/missoes", json=payload1, headers=admin_headers)
+    assert res1.status_code == 201, res1.text
+
+    # Cria segunda missão em datas diferentes (2027-02-15 a 2027-02-20)
+    cod2 = "MIS-2027-IND-TO-UPDATE"
+    payload2 = {
+        "codigo_missao": cod2,
+        "titulo": "Operação Futura PB 2027",
+        "tipo_missao": "Operacional / Repressão",
+        "modalidade": "INDIVIDUAL",
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "CGE/PF/PB",
+        "localidade_descricao": "Campina Grande/PB",
+        "data_inicio": "2027-02-15",
+        "data_termino": "2027-02-20",
+        "valor_diaria_padrao": 425.00,
+        "responsavel_matricula": "10293",
+        "missionario_matricula": "38104",
+        "justificativa": "Futura",
+        "status_atual": "RASCUNHO"
+    }
+    res2 = client.post("/api/missoes", json=payload2, headers=admin_headers)
+    assert res2.status_code == 201, res2.text
+    missao2_id = res2.json()["id"]
+
+    # Tenta atualizar datas da segunda missão para colidir com a primeira (2027-02-03 a 2027-02-08)
+    res_update_conflict = client.put(
+        f"/api/missoes/{missao2_id}",
+        json={
+            "data_inicio": "2027-02-03",
+            "data_termino": "2027-02-08"
+        },
+        headers=admin_headers
+    )
+    assert res_update_conflict.status_code == 400
+    assert "conflito" in res_update_conflict.json()["detail"].lower()
+
+
+def test_auditoria_login_falho_e_bloqueado(client, admin_headers):
+    """Tentativas de login com credenciais incorretas ou usuário inativo geram auditoria forense detalhada."""
+    # 1. Login com senha errada
+    res_failed = client.post("/api/auth/login", json={"username": "admin", "password": "senha_errada_123"})
+    assert res_failed.status_code == 401
+
+    # 2. Consultar logs de auditoria
+    res_logs = client.get("/api/audit/logs?limite=10", headers=admin_headers)
+    assert res_logs.status_code == 200
+    logs = res_logs.json()
+    falha_log = next((l for l in logs if l["operacao"] == "LOGIN_FAILED" and l["usuario_login"] == "admin"), None)
+    assert falha_log is not None
+    assert falha_log["entidade_tabela"] == "usuarios"
+    assert "detalhes" in falha_log
+    assert falha_log["detalhes"]["motivo"] == "Credenciais inválidas"
+
+    # 3. Usuário inativo tenta logar
+    res_user = client.post(
+        "/api/usuarios",
+        json={
+            "username": "usuario.desativado",
+            "full_name": "Usuário Desativado",
+            "email": "desativado@pf.gov.br",
+            "password": "SenhaAtiva123",
+            "role": "SERVIDOR",
+            "is_active": False
+        },
+        headers=admin_headers
+    )
+    assert res_user.status_code == 201
+
+    res_blocked = client.post("/api/auth/login", json={"username": "usuario.desativado", "password": "SenhaAtiva123"})
+    assert res_blocked.status_code == 403
+
+    # Checa auditoria de bloqueio
+    res_logs2 = client.get("/api/audit/logs?limite=10", headers=admin_headers)
+    logs2 = res_logs2.json()
+    bloq_log = next((l for l in logs2 if l["operacao"] == "LOGIN_BLOCKED" and l["usuario_login"] == "usuario.desativado"), None)
+    assert bloq_log is not None
+
+
+def test_crud_unidades_e_prioridade(client, admin_headers, cadastrador_headers):
+    """Admin realiza CRUD completo de unidades; Perfis não-admin são bloqueados."""
+    nova_unid = {
+        "sigla": "DPF/CPV/PB",
+        "nome_extenso": "Delegacia de Polícia Federal em Cajazeiras/PB",
+        "municipio": "Cajazeiras",
+        "uf": "PB",
+        "is_fronteira": False,
+        "ativo": True
+    }
+
+    # 1. Não-admin tenta criar unidade -> 403
+    res_cad_post = client.post("/api/missoes/meta/unidades", json=nova_unid, headers=cadastrador_headers)
+    assert res_cad_post.status_code == 403
+
+    # 2. Admin cria com sucesso -> 201
+    res_post = client.post("/api/missoes/meta/unidades", json=nova_unid, headers=admin_headers)
+    assert res_post.status_code == 201
+    unid_criada = res_post.json()
+    assert unid_criada["sigla"] == "DPF/CPV/PB"
+    unid_id = unid_criada["id"]
+
+    # 3. Admin edita unidade
+    res_put = client.put(
+        f"/api/missoes/meta/unidades/{unid_id}",
+        json={"nome_extenso": "Posto Avançado da PF em Cajazeiras/PB", "is_fronteira": True},
+        headers=admin_headers
+    )
+    assert res_put.status_code == 200
+    assert res_put.json()["nome_extenso"] == "Posto Avançado da PF em Cajazeiras/PB"
+    assert res_put.json()["is_fronteira"] is True
+
+    # 4. Admin desativa unidade (soft-delete)
+    res_del = client.delete(f"/api/missoes/meta/unidades/{unid_id}", headers=admin_headers)
+    assert res_del.status_code == 200
+
+    # 5. Listagem padrão (apenas ativas) não deve conter a unidade desativada
+    res_list_ativas = client.get("/api/missoes/meta/unidades", headers=admin_headers)
+    siglas_ativas = [u["sigla"] for u in res_list_ativas.json()]
+    assert "DPF/CPV/PB" not in siglas_ativas
+
+    # 6. Listagem com todas=true deve conter a unidade desativada
+    res_list_todas = client.get("/api/missoes/meta/unidades?todas=true", headers=admin_headers)
+    siglas_todas = [u["sigla"] for u in res_list_todas.json()]
+    assert "DPF/CPV/PB" in siglas_todas
+

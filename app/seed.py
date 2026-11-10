@@ -42,8 +42,25 @@ def _seed_missao(
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(codigo_missao) DO UPDATE SET
+            titulo=excluded.titulo,
+            justificativa=excluded.justificativa,
+            tipo_missao=excluded.tipo_missao,
+            unidade_solicitante=excluded.unidade_solicitante,
+            unidade_destino=excluded.unidade_destino,
+            localidade_descricao=excluded.localidade_descricao,
+            data_inicio=excluded.data_inicio,
+            data_termino=excluded.data_termino,
+            total_dias=excluded.total_dias,
+            responsavel_matricula=excluded.responsavel_matricula,
             missionario_matricula=excluded.missionario_matricula,
-            modalidade=excluded.modalidade
+            modalidade=excluded.modalidade,
+            status_atual=excluded.status_atual,
+            numero_sat=excluded.numero_sat,
+            numero_om=excluded.numero_om,
+            numero_pcdp=excluded.numero_pcdp,
+            processo_sei=excluded.processo_sei,
+            valor_diaria_padrao=excluded.valor_diaria_padrao,
+            observacoes=excluded.observacoes
         """,
         (
             mid, codigo, titulo, justificativa, tipo, solicitante, destino, localidade,
@@ -161,12 +178,17 @@ def seed_database(db_path: str = None):
             )
 
         # 3. Órgãos e Unidades da PF (Com Paraíba como primeiras opções oficiais)
+        # Limpeza preventiva de referências legadas a ANP
+        conn.execute("DELETE FROM orgao_unidades WHERE sigla = 'ANP/PF'")
+        conn.execute("UPDATE missoes SET unidade_solicitante = 'SR/PF/DF' WHERE unidade_solicitante = 'ANP/PF'")
+        conn.execute("UPDATE missoes SET unidade_destino = 'SR/PF/DF' WHERE unidade_destino = 'ANP/PF'")
+
         unidades = [
             ("unid-pb-01", "SR/PF/PB", "Superintendência Regional na Paraíba", "João Pessoa", "PB", 0),
             ("unid-pb-02", "CGE/PF/PB", "Delegacia de Polícia Federal em Campina Grande/PB", "Campina Grande", "PB", 0),
             ("unid-pb-03", "PAT/PF/PB", "Delegacia de Polícia Federal em Patos/PB", "Patos", "PB", 0),
             ("unid-01", "SR/PF/DF", "Superintendência Regional no Distrito Federal", "Brasília", "DF", 0),
-            ("unid-02", "ANP/PF", "Academia Nacional de Polícia", "Brasília", "DF", 0),
+            ("unid-02", "DGP/PF", "Diretoria de Gestão de Pessoal", "Brasília", "DF", 0),
             ("unid-03", "SR/PF/AM", "Superintendência Regional no Amazonas", "Manaus", "AM", 0),
             ("unid-04", "DPF/CAS/PR", "Delegacia de Polícia Federal em Cascavel/PR", "Cascavel", "PR", 1),
             ("unid-05", "DITEC/PF", "Diretoria Técnico-Científica", "Brasília", "DF", 0),
@@ -663,3 +685,8 @@ def seed_database(db_path: str = None):
                 pcdp=mdata.get("pcdp"),
                 participantes=mdata.get("parts")
             )
+
+if __name__ == "__main__":
+    print("[SEED] Executando carga e sincronização de dados no banco oficial...")
+    seed_database()
+    print("[SEED] Base de dados sincronizada com sucesso para todo o ano de 2026!")

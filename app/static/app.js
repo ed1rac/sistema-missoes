@@ -221,6 +221,7 @@ function navigate(viewName) {
     exportar: "Módulo de Interoperabilidade e Exportação",
     auditoria: "Trilha Imutável de Auditoria (Compliance)",
     usuarios: "Administração de Usuários e Perfis RBAC",
+    unidades: "Cadastro de Unidades Solicitantes & Destino (PF)",
     config: "Parâmetros Gerais do Sistema e Diária Base"
   };
   document.getElementById("page-title").textContent = titles[viewName] || "SIS-MISSÕES PF";
@@ -249,6 +250,9 @@ function navigate(viewName) {
       break;
     case "usuarios":
       renderUsuarios(container);
+      break;
+    case "unidades":
+      renderUnidades(container);
       break;
     case "config":
       renderConfig(container);
@@ -559,9 +563,16 @@ async function initializeDashboardCharts(qs) {
     const ctxMensal = document.getElementById("chart-mensal")?.getContext("2d");
     if (ctxMensal && chartsData.custos_por_mes) {
       const labels = chartsData.custos_por_mes.map(c => {
-        const parts = c.mes.split("-");
         const meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-        return `${meses[parseInt(parts[1], 10) - 1]}/${parts[0].slice(2)}`;
+        const mesAno = c.mes_ano || c.mes || "";
+        if (mesAno.includes("-")) {
+          const parts = mesAno.split("-");
+          const mIdx = parseInt(parts[1], 10) - 1;
+          const yr = parts[0].length >= 4 ? parts[0].slice(2) : parts[0];
+          return `${meses[mIdx] || parts[1]}/${yr}`;
+        }
+        const mIdx = parseInt(mesAno, 10) - 1;
+        return meses[mIdx] || mesAno;
       });
       const dataDiarias = chartsData.custos_por_mes.map(c => c.total_diarias);
       const dataGeral = chartsData.custos_por_mes.map(c => c.total_custo);
@@ -1614,7 +1625,7 @@ async function renderServidores(container) {
           </div>
 
           <!-- Filtros de Servidores -->
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs pt-2 border-t border-slate-800/80">
+          <div class="grid grid-cols-1 md:grid-cols-6 gap-2 text-xs pt-2 border-t border-slate-800/80">
             <div>
               <input type="text" id="filtro-srv-busca" placeholder="Buscar por matrícula, nome, guerra..."
                      class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pf-gold">
@@ -1636,6 +1647,20 @@ async function renderServidores(container) {
                 <option value="">Todos os Status</option>
                 <option value="true">Somente Ativos</option>
                 <option value="false">Inativos</option>
+              </select>
+            </div>
+            <div>
+              <select id="filtro-srv-tpe" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
+                <option value="">Todos Docentes (TPE)</option>
+                <option value="true">Sim (Docente)</option>
+                <option value="false">Não</option>
+              </select>
+            </div>
+            <div>
+              <select id="filtro-srv-miss" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
+                <option value="">Todos Missionários</option>
+                <option value="true">Geral (Com Diárias)</option>
+                <option value="false">Local (Sem Diárias)</option>
               </select>
             </div>
           </div>
@@ -1671,6 +1696,8 @@ async function renderServidores(container) {
     document.getElementById("filtro-srv-cargo").addEventListener("change", onSrvFilter);
     document.getElementById("filtro-srv-unidade").addEventListener("change", onSrvFilter);
     document.getElementById("filtro-srv-status").addEventListener("change", onSrvFilter);
+    document.getElementById("filtro-srv-tpe").addEventListener("change", onSrvFilter);
+    document.getElementById("filtro-srv-miss").addEventListener("change", onSrvFilter);
 
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao listar servidores: ${err.message}</div>`;
@@ -1722,6 +1749,8 @@ function applyServidoresFilter(allServidores) {
   const cargo = document.getElementById("filtro-srv-cargo").value;
   const unidade = document.getElementById("filtro-srv-unidade").value;
   const status = document.getElementById("filtro-srv-status").value;
+  const tpe = document.getElementById("filtro-srv-tpe") ? document.getElementById("filtro-srv-tpe").value : "";
+  const miss = document.getElementById("filtro-srv-miss") ? document.getElementById("filtro-srv-miss").value : "";
 
   const filtered = allServidores.filter(s => {
     const matchBusca = !busca ||
@@ -1732,7 +1761,9 @@ function applyServidoresFilter(allServidores) {
     const matchCargo = !cargo || s.cargo_sigla === cargo;
     const matchUnidade = !unidade || s.unidade_sigla === unidade;
     const matchStatus = !status || String(s.ativo) === status;
-    return matchBusca && matchCargo && matchUnidade && matchStatus;
+    const matchTpe = !tpe || String(s.tpe) === tpe;
+    const matchMiss = !miss || String(s.is_missionario_geral) === miss;
+    return matchBusca && matchCargo && matchUnidade && matchStatus && matchTpe && matchMiss;
   });
 
   document.getElementById("servidores-tbody").innerHTML = renderServidoresRows(filtered);
@@ -1978,6 +2009,8 @@ async function renderAuditoria(container) {
   container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando trilha de auditoria...</div>`;
   try {
     const logs = await apiFetch("/api/audit/logs");
+    CURRENT_LOGS_CACHE = logs;
+    window.__lastAuditLogs = logs;
 
     container.innerHTML = `
       <div class="space-y-4 animate-fade-in">
@@ -1985,7 +2018,7 @@ async function renderAuditoria(container) {
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-sm font-bold text-white uppercase tracking-wider">Trilha Imutável de Auditoria (Compliance e LGPD)</h3>
-              <p class="text-xs text-slate-400">Horário Oficial de Brasília (BRT / UTC-3) • Clique em qualquer registro para visualizar os detalhes completos</p>
+              <p class="text-xs text-slate-400">Horário Oficial de Brasília (BRT / UTC-3) • Clique em qualquer registro ou linha de logon para detalhes completos</p>
             </div>
             <span class="px-3 py-1 bg-pf-900 border border-pf-600/40 text-blue-300 rounded-xl text-xs font-mono">
               Fuso Horário: America/Sao_Paulo (BRT)
@@ -2001,7 +2034,9 @@ async function renderAuditoria(container) {
             <div>
               <select id="filtro-audit-op" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
                 <option value="">Todas as Operações</option>
-                <option value="LOGIN">LOGIN</option>
+                <option value="LOGIN">LOGIN (Logon com Sucesso)</option>
+                <option value="LOGIN_FAILED">LOGIN_FAILED (Falha de Logon)</option>
+                <option value="LOGIN_BLOCKED">LOGIN_BLOCKED (Conta Inativa)</option>
                 <option value="CRIAR_MISSAO">CRIAR_MISSAO</option>
                 <option value="STATUS_MISSAO">STATUS_MISSAO</option>
                 <option value="ALTERAR_DIARIA_MISSAO">ALTERAR_DIARIA_MISSAO</option>
@@ -2061,11 +2096,15 @@ function renderAuditoriaRows(logs) {
       <td class="py-3 px-3 font-bold text-white font-mono">${l.usuario_login}</td>
       <td class="py-3 px-3 text-slate-400 font-mono">${l.usuario_ip}</td>
       <td class="py-3 px-3">
-        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 border border-slate-700 text-blue-300">
+        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+          l.operacao === 'LOGIN' ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
+          (l.operacao === 'LOGIN_FAILED' || l.operacao === 'LOGIN_BLOCKED') ? 'bg-red-950 border border-red-800 text-red-300' :
+          'bg-slate-800 border border-slate-700 text-blue-300'
+        }">
           ${l.operacao}
         </span>
       </td>
-      <td class="py-3 px-3 font-mono text-slate-300">${l.entidade_tabela} ${l.entidade_id ? `(#${l.entidade_id})` : ''}</td>
+      <td class="py-3 px-3 font-mono text-slate-300">${l.entidade_tabela} ${l.registro_id ? `(#${l.registro_id})` : ''}</td>
       <td class="py-3 px-3 font-mono text-[11px] text-slate-400 max-w-xs truncate">
         ${l.detalhes ? JSON.stringify(l.detalhes) : '-'}
       </td>
@@ -2107,6 +2146,8 @@ function openAuditDetail(logIndex) {
   const modalContent = document.getElementById("modal-content");
   modalContainer.classList.remove("hidden");
 
+  const isLogon = log.operacao === 'LOGIN' || log.operacao === 'LOGIN_FAILED' || log.operacao === 'LOGIN_BLOCKED';
+
   modalContent.innerHTML = `
     <div class="space-y-4">
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -2116,6 +2157,26 @@ function openAuditDetail(logIndex) {
         </div>
         <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
       </div>
+
+      ${isLogon ? `
+        <div class="p-4 rounded-xl border ${log.operacao === 'LOGIN' ? 'bg-emerald-950/40 border-emerald-800/80' : 'bg-red-950/40 border-red-800/80'}">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider ${log.operacao === 'LOGIN' ? 'text-emerald-300' : 'text-red-300'}">
+              ${log.operacao === 'LOGIN' ? '✅ Sessão de Logon Autenticada com Sucesso' : '⚠️ Tentativa de Logon Rejeitada / Bloqueada'}
+            </span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 border border-slate-700 text-slate-300">
+              BRT Oficial: ${log.timestamp}
+            </span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+            <div><span class="text-slate-400">Usuário:</span> <strong class="text-white font-mono">${log.usuario_login}</strong></div>
+            <div><span class="text-slate-400">Nome:</span> <span class="text-slate-200">${log.detalhes?.nome_completo || '-'}</span></div>
+            <div><span class="text-slate-400">Perfil (RBAC):</span> <span class="text-pf-gold font-bold">${log.detalhes?.role || '-'}</span></div>
+            <div><span class="text-slate-400">IP de Origem:</span> <span class="text-slate-200 font-mono">${log.usuario_ip}</span></div>
+            <div class="col-span-2"><span class="text-slate-400">Navegador/Agente:</span> <span class="text-slate-300 font-mono text-[11px] truncate block">${log.detalhes?.user_agent || 'N/A'}</span></div>
+          </div>
+        </div>
+      ` : ''}
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
         <div>
@@ -2132,7 +2193,7 @@ function openAuditDetail(logIndex) {
         </div>
         <div>
           <p class="text-slate-500 uppercase font-semibold text-[10px]">Tabela / Registro</p>
-          <p class="font-mono text-pf-gold font-bold mt-0.5">${log.entidade_tabela} (${log.entidade_id || 'Global'})</p>
+          <p class="font-mono text-pf-gold font-bold mt-0.5">${log.entidade_tabela} (${log.registro_id || 'Global'})</p>
         </div>
       </div>
 
@@ -2147,17 +2208,6 @@ function openAuditDetail(logIndex) {
     </div>
   `;
 }
-
-// Salvar logs no window para referência do modal
-const originalRenderAuditoria = renderAuditoria;
-renderAuditoria = async function(container) {
-  try {
-    const logs = await apiFetch("/api/audit/logs");
-    window.__lastAuditLogs = logs;
-    CURRENT_LOGS_CACHE = logs;
-  } catch(e) {}
-  return originalRenderAuditoria(container);
-};
 
 // ==============================================================================
 // 8. GESTÃO DE USUÁRIOS E PERFIS RBAC (ADMIN ONLY)
@@ -2174,15 +2224,41 @@ async function renderUsuarios(container) {
 
     container.innerHTML = `
       <div class="space-y-4 animate-fade-in">
-        <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Gestão de Usuários e Controle de Acesso (RBAC)</h3>
-            <p class="text-xs text-slate-400">Administração de perfis: ADMIN, CADASTRADOR, GERENCIAL e SERVIDOR</p>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 class="text-sm font-bold text-white uppercase tracking-wider">Gestão de Usuários e Controle de Acesso (RBAC)</h3>
+              <p class="text-xs text-slate-400">Administração de perfis: ADMIN, CADASTRADOR, GERENCIAL e SERVIDOR</p>
+            </div>
+            <button onclick="openModalNovoUsuario()" class="bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow flex items-center space-x-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+              <span>Novo Usuário</span>
+            </button>
           </div>
-          <button onclick="openModalNovoUsuario()" class="bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow flex items-center space-x-1.5 transition">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
-            <span>Novo Usuário</span>
-          </button>
+
+          <!-- Filtros de Usuários -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs pt-2 border-t border-slate-800/80">
+            <div>
+              <input type="text" id="filtro-usr-busca" placeholder="Buscar por login, nome, e-mail..."
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pf-gold">
+            </div>
+            <div>
+              <select id="filtro-usr-role" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
+                <option value="">Todos os Perfis (RBAC)</option>
+                <option value="ADMIN">ADMIN</option>
+                <option value="CADASTRADOR">CADASTRADOR</option>
+                <option value="GERENCIAL">GERENCIAL</option>
+                <option value="SERVIDOR">SERVIDOR</option>
+              </select>
+            </div>
+            <div>
+              <select id="filtro-usr-status" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
+                <option value="">Todos os Status</option>
+                <option value="true">Somente Ativos</option>
+                <option value="false">Inativos</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
@@ -2199,52 +2275,83 @@ async function renderUsuarios(container) {
                   <th class="py-3 px-3 text-right">Ações</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800/60">
-                ${usuarios.map(u => `
-                  <tr class="hover:bg-slate-800/40 transition">
-                    <td class="py-3 px-3 font-mono font-bold text-pf-gold">${u.username}</td>
-                    <td class="py-3 px-3 font-semibold text-white">${u.full_name || '-'}</td>
-                    <td class="py-3 px-3 text-slate-300">${u.email || '-'}</td>
-                    <td class="py-3 px-3">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
-                        u.role === 'ADMIN' ? 'bg-red-950 border border-red-800 text-red-300' :
-                        u.role === 'CADASTRADOR' ? 'bg-amber-950 border border-amber-800 text-amber-300' :
-                        u.role === 'GERENCIAL' ? 'bg-blue-950 border border-blue-800 text-blue-300' :
-                        'bg-slate-800 border border-slate-700 text-slate-300'
-                      }">
-                        ${u.role}
-                      </span>
-                    </td>
-                    <td class="py-3 px-3">
-                      ${u.is_active ? 
-                        `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 border border-emerald-800 text-emerald-300">ATIVO</span>` : 
-                        `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-950 border border-red-800 text-red-300">INATIVO</span>`}
-                    </td>
-                    <td class="py-3 px-3 text-slate-400 font-mono text-[11px]">${formatDateBR(u.created_at)}</td>
-                    <td class="py-3 px-3 text-right space-x-1">
-                      <button onclick="openModalEditarUsuario(${JSON.stringify(u).replace(/"/g, '&quot;')})" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-semibold text-[11px] transition">
-                        Editar
-                      </button>
-                      <button onclick="openModalResetarSenha('${u.id}', '${u.username}')" class="px-2.5 py-1 bg-amber-900/60 hover:bg-amber-800 text-amber-200 rounded font-semibold text-[11px] transition">
-                        Senha
-                      </button>
-                      ${u.id !== CURRENT_USER.id ? `
-                        <button onclick="excluirUsuario('${u.id}', '${u.username}')" class="px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 rounded font-semibold text-[11px] transition">
-                          Excluir
-                        </button>
-                      ` : ''}
-                    </td>
-                  </tr>
-                `).join('')}
+              <tbody class="divide-y divide-slate-800/60" id="usuarios-tbody">
+                ${renderUsuariosRows(usuarios)}
               </tbody>
             </table>
           </div>
         </div>
       </div>
     `;
+
+    const onUsrFilter = () => applyUsuariosFilter(usuarios);
+    document.getElementById("filtro-usr-busca").addEventListener("input", onUsrFilter);
+    document.getElementById("filtro-usr-role").addEventListener("change", onUsrFilter);
+    document.getElementById("filtro-usr-status").addEventListener("change", onUsrFilter);
+
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar usuários: ${err.message}</div>`;
   }
+}
+
+function renderUsuariosRows(usuarios) {
+  if (usuarios.length === 0) {
+    return `<tr><td colspan="7" class="text-center py-8 text-slate-500">Nenhum usuário encontrado.</td></tr>`;
+  }
+  return usuarios.map(u => `
+    <tr class="hover:bg-slate-800/40 transition">
+      <td class="py-3 px-3 font-mono font-bold text-pf-gold">${u.username}</td>
+      <td class="py-3 px-3 font-semibold text-white">${u.full_name || '-'}</td>
+      <td class="py-3 px-3 text-slate-300">${u.email || '-'}</td>
+      <td class="py-3 px-3">
+        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+          u.role === 'ADMIN' ? 'bg-red-950 border border-red-800 text-red-300' :
+          u.role === 'CADASTRADOR' ? 'bg-amber-950 border border-amber-800 text-amber-300' :
+          u.role === 'GERENCIAL' ? 'bg-blue-950 border border-blue-800 text-blue-300' :
+          'bg-slate-800 border border-slate-700 text-slate-300'
+        }">
+          ${u.role}
+        </span>
+      </td>
+      <td class="py-3 px-3">
+        ${u.is_active ? 
+          `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 border border-emerald-800 text-emerald-300">ATIVO</span>` : 
+          `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-950 border border-red-800 text-red-300">INATIVO</span>`}
+      </td>
+      <td class="py-3 px-3 text-slate-400 font-mono text-[11px]">${formatDateBR(u.created_at)}</td>
+      <td class="py-3 px-3 text-right space-x-1">
+        <button onclick="openModalEditarUsuario(${JSON.stringify(u).replace(/"/g, '&quot;')})" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-semibold text-[11px] transition">
+          Editar
+        </button>
+        <button onclick="openModalResetarSenha('${u.id}', '${u.username}')" class="px-2.5 py-1 bg-amber-900/60 hover:bg-amber-800 text-amber-200 rounded font-semibold text-[11px] transition">
+          Senha
+        </button>
+        ${u.id !== CURRENT_USER.id ? `
+          <button onclick="excluirUsuario('${u.id}', '${u.username}')" class="px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 rounded font-semibold text-[11px] transition">
+            Excluir
+          </button>
+        ` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function applyUsuariosFilter(allUsuarios) {
+  const busca = document.getElementById("filtro-usr-busca").value.toLowerCase();
+  const role = document.getElementById("filtro-usr-role").value;
+  const status = document.getElementById("filtro-usr-status").value;
+
+  const filtered = allUsuarios.filter(u => {
+    const matchBusca = !busca ||
+      u.username.toLowerCase().includes(busca) ||
+      (u.full_name && u.full_name.toLowerCase().includes(busca)) ||
+      (u.email && u.email.toLowerCase().includes(busca));
+    const matchRole = !role || u.role === role;
+    const matchStatus = !status || String(u.is_active) === status;
+    return matchBusca && matchRole && matchStatus;
+  });
+
+  document.getElementById("usuarios-tbody").innerHTML = renderUsuariosRows(filtered);
 }
 
 function openModalNovoUsuario() {
@@ -2440,6 +2547,337 @@ async function excluirUsuario(userId, username) {
     navigate("usuarios");
   } catch (err) {
     alert(`Erro ao excluir usuário: ${err.message}`);
+  }
+}
+
+// ==============================================================================
+// 8.5. CADASTRO E GESTÃO DE UNIDADES (SOLICITANTES E DESTINO)
+// ==============================================================================
+async function renderUnidades(container) {
+  container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando unidades...</div>`;
+  try {
+    const unidades = await apiFetch("/api/missoes/meta/unidades?todas=true");
+    const isAdmin = CURRENT_USER && CURRENT_USER.role === "ADMIN";
+
+    container.innerHTML = `
+      <div class="space-y-6 animate-fade-in">
+        <!-- Header & Ações -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-950/80 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-base font-bold text-white">Unidades da Polícia Federal</h2>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-800 text-pf-gold">Prioridade PB Oficial</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">Unidades Solicitantes e de Destino com priorização da Paraíba (SR/PF/PB, CGE/PF/PB, PAT/PF/PB)</p>
+          </div>
+          ${isAdmin ? `
+            <button onclick="openModalNovaUnidade()" class="px-4 py-2 bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold rounded-xl text-xs transition shadow flex items-center justify-center space-x-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+              <span>Nova Unidade</span>
+            </button>
+          ` : ''}
+        </div>
+
+        <!-- Filtros -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-4 shadow-xl flex flex-wrap gap-3 items-center text-xs">
+          <div class="flex-1 min-w-[200px]">
+            <input type="text" id="filtro-unid-busca" placeholder="🔍 Buscar por sigla, nome ou município..." 
+                   class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pf-gold">
+          </div>
+          <div>
+            <select id="filtro-unid-uf" class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-300">
+              <option value="">Todas as UFs</option>
+              <option value="PB">PB (Paraíba)</option>
+              <option value="DF">DF (Distrito Federal)</option>
+              <option value="RJ">RJ (Rio de Janeiro)</option>
+              <option value="SP">SP (São Paulo)</option>
+              <option value="PR">PR (Paraná)</option>
+              <option value="AM">AM (Amazonas)</option>
+              <option value="BA">BA (Bahia)</option>
+              <option value="CE">CE (Ceará)</option>
+              <option value="PE">PE (Pernambuco)</option>
+              <option value="RN">RN (Rio Grande do Norte)</option>
+            </select>
+          </div>
+          <div>
+            <select id="filtro-unid-status" class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-300">
+              <option value="">Todos os Status</option>
+              <option value="true" selected>Apenas Ativas</option>
+              <option value="false">Apenas Inativas</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tabela -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th class="py-3 px-3">Sigla</th>
+                  <th class="py-3 px-3">Nome Extenso</th>
+                  <th class="py-3 px-3">Município / UF</th>
+                  <th class="py-3 px-3">Fronteira</th>
+                  <th class="py-3 px-3">Status</th>
+                  <th class="py-3 px-3 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="unidades-tbody" class="divide-y divide-slate-800/60">
+                ${renderUnidadesRows(unidades)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const triggerFilter = () => applyUnidadesFilter(unidades);
+    document.getElementById("filtro-unid-busca")?.addEventListener("input", triggerFilter);
+    document.getElementById("filtro-unid-uf")?.addEventListener("change", triggerFilter);
+    document.getElementById("filtro-unid-status")?.addEventListener("change", triggerFilter);
+    triggerFilter();
+  } catch (err) {
+    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar unidades: ${err.message}</div>`;
+  }
+}
+
+function renderUnidadesRows(unidades) {
+  if (!unidades || unidades.length === 0) {
+    return `<tr><td colspan="6" class="py-8 text-center text-slate-400">Nenhuma unidade encontrada.</td></tr>`;
+  }
+  const isAdmin = CURRENT_USER && CURRENT_USER.role === 'ADMIN';
+  const prioritarias = ['SR/PF/PB', 'CGE/PF/PB', 'PAT/PF/PB'];
+
+  return unidades.map(u => {
+    const isPB = prioritarias.includes(u.sigla);
+    return `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td class="py-3 px-3 font-mono font-bold text-white flex items-center">
+          <span class="text-pf-gold">${u.sigla}</span>
+          ${isPB ? `<span class="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-pf-gold border border-amber-500/30">PRIORITÁRIA PB</span>` : ''}
+        </td>
+        <td class="py-3 px-3 font-semibold text-slate-200">${u.nome_extenso || '-'}</td>
+        <td class="py-3 px-3 text-slate-300">${u.municipio || '-'} / <span class="font-bold text-slate-400">${u.uf || '-'}</span></td>
+        <td class="py-3 px-3">
+          ${u.is_fronteira ? 
+            `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 border border-purple-800 text-purple-300">FRONTEIRA</span>` : 
+            `<span class="text-slate-500 text-[11px]">-</span>`}
+        </td>
+        <td class="py-3 px-3">
+          ${u.ativo ? 
+            `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 border border-emerald-800 text-emerald-300">ATIVA</span>` : 
+            `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-950 border border-red-800 text-red-300">INATIVA</span>`}
+        </td>
+        <td class="py-3 px-3 text-right space-x-1">
+          ${isAdmin ? `
+            <button onclick="openModalEditarUnidade(${JSON.stringify(u).replace(/"/g, '&quot;')})" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-semibold text-[11px] transition">
+              Editar
+            </button>
+            ${u.ativo ? `
+              <button onclick="desativarUnidade('${u.id}', '${u.sigla}')" class="px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 rounded font-semibold text-[11px] transition">
+                Desativar
+              </button>
+            ` : `
+              <button onclick="reativarUnidade('${u.id}', '${u.sigla}')" class="px-2.5 py-1 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 rounded font-semibold text-[11px] transition">
+                Reativar
+              </button>
+            `}
+          ` : `
+            <span class="text-slate-500 text-[11px]">Somente Leitura</span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function applyUnidadesFilter(allUnidades) {
+  const busca = document.getElementById("filtro-unid-busca")?.value.toLowerCase() || "";
+  const uf = document.getElementById("filtro-unid-uf")?.value || "";
+  const status = document.getElementById("filtro-unid-status")?.value || "";
+
+  const filtered = allUnidades.filter(u => {
+    const matchBusca = !busca ||
+      u.sigla.toLowerCase().includes(busca) ||
+      (u.nome_extenso && u.nome_extenso.toLowerCase().includes(busca)) ||
+      (u.municipio && u.municipio.toLowerCase().includes(busca));
+    const matchUf = !uf || u.uf === uf;
+    const matchStatus = !status || String(Boolean(u.ativo)) === status;
+    return matchBusca && matchUf && matchStatus;
+  });
+
+  const tbody = document.getElementById("unidades-tbody");
+  if (tbody) {
+    tbody.innerHTML = renderUnidadesRows(filtered);
+  }
+}
+
+function openModalNovaUnidade() {
+  const modalContainer = document.getElementById("modal-container");
+  const modalContent = document.getElementById("modal-content");
+  modalContainer.classList.remove("hidden");
+
+  modalContent.innerHTML = `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h2 class="text-base font-bold text-white">Cadastrar Nova Unidade da PF</h2>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
+      </div>
+
+      <form id="form-criar-unidade" class="space-y-3 text-xs">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Sigla Oficial da Unidade</label>
+            <input type="text" id="unid-sigla" required placeholder="Ex: DPF/JPA/PB" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono uppercase">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">UF (Estado)</label>
+            <input type="text" id="unid-uf" required maxlength="2" placeholder="Ex: PB" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono uppercase">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-slate-400 mb-1">Nome Extenso Institucional</label>
+            <input type="text" id="unid-nome" required placeholder="Ex: Delegacia de Polícia Federal em João Pessoa" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-slate-400 mb-1">Município Sede</label>
+            <input type="text" id="unid-municipio" required placeholder="Ex: João Pessoa" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+          </div>
+          <div class="flex items-center space-x-2 pt-2">
+            <input type="checkbox" id="unid-fronteira" class="rounded bg-slate-900 border-slate-700 text-pf-gold focus:ring-0">
+            <label for="unid-fronteira" class="text-slate-200 font-semibold cursor-pointer">Unidade Localizada em Fronteira</label>
+          </div>
+          <div class="flex items-center space-x-2 pt-2">
+            <input type="checkbox" id="unid-ativo" checked class="rounded bg-slate-900 border-slate-700 text-pf-gold focus:ring-0">
+            <label for="unid-ativo" class="text-slate-200 font-semibold cursor-pointer">Unidade Ativa no Sistema</label>
+          </div>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold rounded-xl shadow">Cadastrar Unidade</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.getElementById("form-criar-unidade").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      sigla: document.getElementById("unid-sigla").value.trim().toUpperCase(),
+      nome_extenso: document.getElementById("unid-nome").value.trim(),
+      municipio: document.getElementById("unid-municipio").value.trim(),
+      uf: document.getElementById("unid-uf").value.trim().toUpperCase(),
+      is_fronteira: document.getElementById("unid-fronteira").checked,
+      ativo: document.getElementById("unid-ativo").checked
+    };
+
+    try {
+      await apiFetch("/api/missoes/meta/unidades", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      alert(`Unidade '${payload.sigla}' cadastrada com sucesso!`);
+      closeModal();
+      METADATA_CACHE.unidades = await apiFetch("/api/missoes/meta/unidades");
+      navigate("unidades");
+    } catch (err) {
+      alert(`Erro ao cadastrar unidade: ${err.message}`);
+    }
+  });
+}
+
+function openModalEditarUnidade(u) {
+  const modalContainer = document.getElementById("modal-container");
+  const modalContent = document.getElementById("modal-content");
+  modalContainer.classList.remove("hidden");
+
+  modalContent.innerHTML = `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h2 class="text-base font-bold text-white">Editar Unidade: ${u.sigla}</h2>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
+      </div>
+
+      <form id="form-editar-unidade" class="space-y-3 text-xs">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="md:col-span-2">
+            <label class="block text-slate-400 mb-1">Nome Extenso Institucional</label>
+            <input type="text" id="edit-unid-nome" value="${u.nome_extenso || ''}" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Município Sede</label>
+            <input type="text" id="edit-unid-municipio" value="${u.municipio || ''}" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">UF (Estado)</label>
+            <input type="text" id="edit-unid-uf" value="${u.uf || ''}" required maxlength="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono uppercase">
+          </div>
+          <div class="flex items-center space-x-2 pt-2">
+            <input type="checkbox" id="edit-unid-fronteira" ${u.is_fronteira ? 'checked' : ''} class="rounded bg-slate-900 border-slate-700 text-pf-gold focus:ring-0">
+            <label for="edit-unid-fronteira" class="text-slate-200 font-semibold cursor-pointer">Unidade Localizada em Fronteira</label>
+          </div>
+          <div class="flex items-center space-x-2 pt-2">
+            <input type="checkbox" id="edit-unid-ativo" ${u.ativo ? 'checked' : ''} class="rounded bg-slate-900 border-slate-700 text-pf-gold focus:ring-0">
+            <label for="edit-unid-ativo" class="text-slate-200 font-semibold cursor-pointer">Unidade Ativa no Sistema</label>
+          </div>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-pf-700 hover:bg-pf-600 text-white font-bold rounded-xl shadow">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.getElementById("form-editar-unidade").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      nome_extenso: document.getElementById("edit-unid-nome").value.trim(),
+      municipio: document.getElementById("edit-unid-municipio").value.trim(),
+      uf: document.getElementById("edit-unid-uf").value.trim().toUpperCase(),
+      is_fronteira: document.getElementById("edit-unid-fronteira").checked,
+      ativo: document.getElementById("edit-unid-ativo").checked
+    };
+
+    try {
+      await apiFetch(`/api/missoes/meta/unidades/${u.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
+      alert(`Unidade '${u.sigla}' atualizada com sucesso!`);
+      closeModal();
+      METADATA_CACHE.unidades = await apiFetch("/api/missoes/meta/unidades");
+      navigate("unidades");
+    } catch (err) {
+      alert(`Erro ao editar unidade: ${err.message}`);
+    }
+  });
+}
+
+async function desativarUnidade(unidId, sigla) {
+  if (!confirm(`Deseja realmente desativar a unidade '${sigla}'? As missões históricas permanecerão associadas.`)) return;
+  try {
+    await apiFetch(`/api/missoes/meta/unidades/${unidId}`, { method: "DELETE" });
+    alert(`Unidade '${sigla}' desativada com sucesso.`);
+    METADATA_CACHE.unidades = await apiFetch("/api/missoes/meta/unidades");
+    navigate("unidades");
+  } catch (err) {
+    alert(`Erro ao desativar unidade: ${err.message}`);
+  }
+}
+
+async function reativarUnidade(unidId, sigla) {
+  try {
+    await apiFetch(`/api/missoes/meta/unidades/${unidId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ativo: true })
+    });
+    alert(`Unidade '${sigla}' reativada com sucesso!`);
+    METADATA_CACHE.unidades = await apiFetch("/api/missoes/meta/unidades");
+    navigate("unidades");
+  } catch (err) {
+    alert(`Erro ao reativar unidade: ${err.message}`);
   }
 }
 

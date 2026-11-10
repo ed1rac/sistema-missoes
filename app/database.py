@@ -163,14 +163,17 @@ def get_db(db_path: str = None) -> Generator[sqlite3.Connection, None, None]:
 
 def init_db(db_path: str = None):
     with get_db(db_path) as conn:
-        conn.executescript(SCHEMA_SQL)
-        # Migração idempotente para colunas novas em bases existentes
+        # Migração idempotente para colunas novas em bases pré-existentes
         try:
-            cols = [r["name"] for r in conn.execute("PRAGMA table_info(missoes)").fetchall()]
-            if "missionario_matricula" not in cols:
-                conn.execute("ALTER TABLE missoes ADD COLUMN missionario_matricula TEXT REFERENCES servidores(matricula);")
-            if "modalidade" not in cols:
-                conn.execute("ALTER TABLE missoes ADD COLUMN modalidade TEXT NOT NULL DEFAULT 'EQUIPE';")
+            tbl_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='missoes'").fetchone()
+            if tbl_check:
+                cols = [r["name"] for r in conn.execute("PRAGMA table_info(missoes)").fetchall()]
+                if "missionario_matricula" not in cols:
+                    conn.execute("ALTER TABLE missoes ADD COLUMN missionario_matricula TEXT REFERENCES servidores(matricula);")
+                if "modalidade" not in cols:
+                    conn.execute("ALTER TABLE missoes ADD COLUMN modalidade TEXT NOT NULL DEFAULT 'EQUIPE';")
         except Exception as e:
-            print(f"[DB MIGRATION WARNING] {e}")
+            print(f"[DB PRE-MIGRATION WARNING] {e}")
+
+        conn.executescript(SCHEMA_SQL)
 

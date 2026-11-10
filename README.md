@@ -12,7 +12,7 @@
 
 O **SIS-MISSÕES PF** é a nova plataforma institucional corporativa para planejamento, designação, controle financeiro, prestação de contas e auditoria de missões e servidores da Polícia Federal em todo o território nacional.
 
-Este sistema foi construído a partir do zero em substituição ao antigo aplicativo departamental monousuário da ANP, transformando um fluxo manual e desconectado em uma **solução Web moderna, multiusuário, auditável, de alta performance e pronta para uso imediato**.
+Este sistema foi construído a partir do zero em substituição ao antigo aplicativo departamental monousuário, transformando um fluxo manual e desconectado em uma **solução Web moderna, multiusuário, auditável, de alta performance e pronta para uso imediato**.
 
 ---
 
@@ -20,7 +20,7 @@ Este sistema foi construído a partir do zero em substituição ao antigo aplica
 
 | Dimensão Avaliada | Sistema Legado (Legado Desktop) | Novo SIS-MISSÕES PF (v2.0) |
 |---|---|---|
-| **Modelo Conceitual** | Estritamente restrito a **"Instrutor"** da ANP. Todo policial era cadastrado como se fosse professor. | Conceito centralizado de **SERVIDOR** (DPF, PCF, APF, EPF, PPF, ADM). Papéis (coordenador, instrutor, perito, operador) são dinâmicos por missão. |
+| **Modelo Conceitual** | Estritamente restrito a fluxo acadêmico isolado. Policiais cadastrados com perfis estáticos e sem flexibilidade. | Conceito centralizado de **SERVIDOR** (DPF, PCF, APF, EPF, PPF, ADM). Papéis (coordenador, instrutor, perito, operador) são dinâmicos por missão. |
 | **Entidade Missão** | Propriedade embutida e subordinada dentro do cadastro do instrutor (desnormalizada, redundante e inconsistente). | **Entidade de 1ª Classe independente**: possui código institucional único, fluxo administrativo formal (OM, SAT, PCDP, Processo SEI) e equipe $N:M$. |
 | **Valor da Diária** | Fixo ou embutido no código, sem possibilidade de ajuste operacional flexível. | **CAMPO EDITÁVEL DA DIÁRIA:** Permite alterar o valor base da diária em nível de sistema, por missão e por participante, com **recalculo dinâmico instantâneo** de todos os totais. |
 | **Fórmula de Diárias** | Cálculos manuais ou fórmulas estáticas sem transparência. | Regra oficial regulamentar automatizada: **$(N - 0{,}5) \times \text{diária}$** com dedução de meia-diária no retorno e **isenção total ($R\$\ 0{,}00$)** para servidores lotados na sede da missão. |

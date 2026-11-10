@@ -410,6 +410,25 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
         curr_modalidade = (data.modalidade or m["modalidade"] or "EQUIPE").upper()
         target_missionario = data.missionario_matricula.strip() if data.missionario_matricula is not None else m["missionario_matricula"]
         if curr_modalidade == "INDIVIDUAL" and target_missionario:
+            conflict = conn.execute(
+                """
+                SELECT m.codigo_missao, m.titulo, p.data_apresentacao, p.data_retorno
+                FROM missoes_participantes p
+                JOIN missoes m ON p.missao_id = m.id
+                WHERE p.servidor_matricula = ?
+                  AND m.id != ?
+                  AND m.status_atual NOT IN ('CANCELADA', 'REJEITADA')
+                  AND p.data_apresentacao <= ?
+                  AND p.data_retorno >= ?
+                """,
+                (target_missionario, m["id"], str(d_termino), str(d_inicio))
+            ).fetchone()
+            if conflict:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Conflito de agenda: Servidor já possui missão ativa '{conflict['codigo_missao']}' de {conflict['data_apresentacao']} a {conflict['data_retorno']}."
+                )
+
             srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (target_missionario,)).fetchone()
             dest = data.unidade_destino if data.unidade_destino is not None else m["unidade_destino"]
             is_sede = 1 if (srv and (srv["unidade_sigla"] == dest or srv["is_missionario_geral"] == 0)) else 0
@@ -625,6 +644,12 @@ def add_participante(
         s = conn.execute("SELECT * FROM servidores WHERE matricula = ?", (data.servidor_matricula,)).fetchone()
         if not s:
             raise HTTPException(status_code=404, detail=f"Servidor com matrícula '{data.servidor_matricula}' não cadastrado.")
+
+        # Missão individual aceita estritamente apenas 1 servidor
+        if (m["modalidade"] or "").upper() == "INDIVIDUAL":
+            existing_parts = conn.execute("SELECT COUNT(*) as cnt FROM missoes_participantes WHERE missao_id = ?", (m["id"],)).fetchone()["cnt"]
+            if existing_parts >= 1:
+                raise HTTPException(status_code=400, detail="Missões na modalidade INDIVIDUAL admitem apenas 1 participante único (missionário).")
 
         # Verificar se já está na mesma missão nas mesmas datas
         exist = conn.execute(
@@ -872,6 +897,7 @@ def get_unidades(
     q: Optional[str] = None,
     uf: Optional[str] = None,
     ativo: Optional[bool] = None,
+    todas: Optional[bool] = False,
     current_user: dict = Depends(get_current_user)
 ):
     query = "SELECT * FROM orgao_unidades WHERE 1=1"
@@ -883,7 +909,11 @@ def get_unidades(
     if uf:
         query += " AND uf = ?"
         params.append(uf.upper())
-    if ativo is not None:
+    if todas:
+        if ativo is not None:
+            query += " AND ativo = ?"
+            params.append(1 if ativo else 0)
+    elif ativo is not None:
         query += " AND ativo = ?"
         params.append(1 if ativo else 0)
     else:
