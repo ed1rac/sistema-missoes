@@ -17,14 +17,19 @@ def export_missoes_csv(current_user: dict = Depends(get_current_user)):
         rows = conn.execute(
             """
             SELECT 
-                m.codigo_missao, m.titulo, m.tipo_missao, m.unidade_solicitante,
-                m.unidade_destino, m.localidade_descricao, m.data_inicio, m.data_termino,
-                m.total_dias, m.status_atual, m.numero_om, m.numero_pcdp, m.valor_diaria_padrao,
+                m.codigo_missao, m.titulo, m.tipo_missao, m.modalidade,
+                sr.nome_completo as responsavel_nome,
+                sm.nome_completo as missionario_nome,
+                m.unidade_solicitante, m.unidade_destino, m.localidade_descricao,
+                m.data_inicio, m.data_termino, m.total_dias, m.status_atual,
+                m.numero_om, m.numero_pcdp, m.valor_diaria_padrao,
                 COUNT(p.id) as participantes,
                 COALESCE(SUM(p.valor_total_diarias), 0.0) as custo_diarias,
                 COALESCE(SUM(p.valor_passagem_aerea), 0.0) as custo_passagens,
                 COALESCE(SUM(p.custo_total_servidor), 0.0) as custo_total
             FROM missoes m
+            LEFT JOIN servidores sr ON m.responsavel_matricula = sr.matricula
+            LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             GROUP BY m.id
             ORDER BY m.data_inicio DESC
@@ -37,7 +42,7 @@ def export_missoes_csv(current_user: dict = Depends(get_current_user)):
     writer = csv.writer(output, delimiter=';')
 
     writer.writerow([
-        "Código da Missão", "Título", "Tipo", "Solicitante", "Destino",
+        "Código da Missão", "Título", "Tipo", "Modalidade", "Responsável", "Missionário", "Solicitante", "Destino",
         "Localidade", "Início", "Término", "Dias", "Status", "Nº OM",
         "Nº PCDP", "Valor Diária Base (R$)", "Nº Participantes",
         "Custo Diárias (R$)", "Custo Passagens (R$)", "Custo Total (R$)"
@@ -45,11 +50,13 @@ def export_missoes_csv(current_user: dict = Depends(get_current_user)):
 
     for r in rows:
         writer.writerow([
-            r["codigo_missao"], r["titulo"], r["tipo_missao"], r["unidade_solicitante"],
-            r["unidade_destino"] or "", r["localidade_descricao"], r["data_inicio"],
-            r["data_termino"], r["total_dias"], r["status_atual"], r["numero_om"] or "",
-            r["numero_pcdp"] or "", f"{r['valor_diaria_padrao']:.2f}", r["participantes"],
-            f"{r['custo_diarias']:.2f}", f"{r['custo_passagens']:.2f}", f"{r['custo_total']:.2f}"
+            r["codigo_missao"], r["titulo"], r["tipo_missao"], r["modalidade"] or "EQUIPE",
+            r["responsavel_nome"] or "", r["missionario_nome"] or "",
+            r["unidade_solicitante"], r["unidade_destino"] or "", r["localidade_descricao"],
+            r["data_inicio"], r["data_termino"], r["total_dias"], r["status_atual"],
+            r["numero_om"] or "", r["numero_pcdp"] or "", f"{r['valor_diaria_padrao']:.2f}",
+            r["participantes"], f"{r['custo_diarias']:.2f}", f"{r['custo_passagens']:.2f}",
+            f"{r['custo_total']:.2f}"
         ])
 
     output.seek(0)
@@ -66,14 +73,19 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
         missoes = conn.execute(
             """
             SELECT 
-                m.codigo_missao, m.titulo, m.tipo_missao, m.unidade_solicitante,
-                m.unidade_destino, m.localidade_descricao, m.data_inicio, m.data_termino,
-                m.total_dias, m.status_atual, m.numero_om, m.numero_pcdp, m.valor_diaria_padrao,
+                m.codigo_missao, m.titulo, m.tipo_missao, m.modalidade,
+                sr.nome_completo as responsavel_nome,
+                sm.nome_completo as missionario_nome,
+                m.unidade_solicitante, m.unidade_destino, m.localidade_descricao,
+                m.data_inicio, m.data_termino, m.total_dias, m.status_atual,
+                m.numero_om, m.numero_pcdp, m.valor_diaria_padrao,
                 COUNT(p.id) as participantes,
                 COALESCE(SUM(p.valor_total_diarias), 0.0) as custo_diarias,
                 COALESCE(SUM(p.valor_passagem_aerea), 0.0) as custo_passagens,
                 COALESCE(SUM(p.custo_total_servidor), 0.0) as custo_total
             FROM missoes m
+            LEFT JOIN servidores sr ON m.responsavel_matricula = sr.matricula
+            LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             GROUP BY m.id
             ORDER BY m.data_inicio DESC
@@ -112,8 +124,8 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
     )
 
     headers1 = [
-        "Código", "Título da Missão", "Tipo", "Solicitante", "Destino",
-        "Localidade", "Início", "Término", "Dias", "Status", "OM",
+        "Código", "Título da Missão", "Tipo", "Modalidade", "Responsável", "Missionário",
+        "Solicitante", "Destino", "Localidade", "Início", "Término", "Dias", "Status", "OM",
         "PCDP", "Valor Diária (R$)", "Efetivo", "Diárias (R$)", "Passagens (R$)", "Total (R$)"
     ]
     ws1.append(headers1)
@@ -126,11 +138,12 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
 
     for r in missoes:
         ws1.append([
-            r["codigo_missao"], r["titulo"], r["tipo_missao"], r["unidade_solicitante"],
-            r["unidade_destino"] or "", r["localidade_descricao"], r["data_inicio"],
-            r["data_termino"], r["total_dias"], r["status_atual"], r["numero_om"] or "",
-            r["numero_pcdp"] or "", r["valor_diaria_padrao"], r["participantes"],
-            r["custo_diarias"], r["custo_passagens"], r["custo_total"]
+            r["codigo_missao"], r["titulo"], r["tipo_missao"], r["modalidade"] or "EQUIPE",
+            r["responsavel_nome"] or "", r["missionario_nome"] or "",
+            r["unidade_solicitante"], r["unidade_destino"] or "", r["localidade_descricao"],
+            r["data_inicio"], r["data_termino"], r["total_dias"], r["status_atual"],
+            r["numero_om"] or "", r["numero_pcdp"] or "", r["valor_diaria_padrao"],
+            r["participantes"], r["custo_diarias"], r["custo_passagens"], r["custo_total"]
         ])
 
     # Aba 2: Participantes e Diárias

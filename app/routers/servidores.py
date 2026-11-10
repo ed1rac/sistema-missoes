@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from app.schemas import ServidorCreate, ServidorUpdate, ServidorOut
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user, require_admin, require_write_permission
 from app.database import get_db
 from app.audit import log_audit
 
@@ -97,7 +97,7 @@ def get_servidor(matricula: str, current_user: dict = Depends(get_current_user))
     )
 
 @router.post("", response_model=ServidorOut, status_code=status.HTTP_201_CREATED)
-def create_servidor(data: ServidorCreate, request: Request, current_user: dict = Depends(require_admin)):
+def create_servidor(data: ServidorCreate, request: Request, current_user: dict = Depends(require_write_permission)):
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM servidores WHERE matricula = ?", (data.matricula,)).fetchone()
         if existing:
@@ -152,7 +152,7 @@ def create_servidor(data: ServidorCreate, request: Request, current_user: dict =
     )
 
 @router.put("/{matricula}", response_model=ServidorOut)
-def update_servidor(matricula: str, data: ServidorUpdate, request: Request, current_user: dict = Depends(require_admin)):
+def update_servidor(matricula: str, data: ServidorUpdate, request: Request, current_user: dict = Depends(require_write_permission)):
     with get_db() as conn:
         existing = conn.execute("SELECT * FROM servidores WHERE matricula = ?", (matricula,)).fetchone()
         if not existing:

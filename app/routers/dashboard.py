@@ -1,34 +1,92 @@
 from datetime import date, timedelta
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, Query
 from app.schemas import DashboardSummary, AlertItem
 from app.auth import get_current_user
 from app.database import get_db
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard Executivo"])
 
+def _build_missao_filter(
+    ano: Optional[int] = None,
+    mes: Optional[int] = None,
+    data_de: Optional[str] = None,
+    data_ate: Optional[str] = None,
+    status: Optional[str] = None,
+    tipo: Optional[str] = None,
+    solicitante: Optional[str] = None,
+    destino: Optional[str] = None,
+    modalidade: Optional[str] = None,
+    alias: str = "m"
+):
+    where = " WHERE 1=1"
+    params = []
+    if status:
+        where += f" AND {alias}.status_atual = ?"
+        params.append(status.upper())
+    if tipo:
+        where += f" AND {alias}.tipo_missao = ?"
+        params.append(tipo)
+    if solicitante:
+        where += f" AND {alias}.unidade_solicitante = ?"
+        params.append(solicitante)
+    if destino:
+        where += f" AND {alias}.unidade_destino = ?"
+        params.append(destino)
+    if modalidade:
+        where += f" AND {alias}.modalidade = ?"
+        params.append(modalidade.upper())
+    if ano:
+        where += f" AND (strftime('%Y', {alias}.data_inicio) = ? OR strftime('%Y', {alias}.data_termino) = ?)"
+        params.extend([str(ano), str(ano)])
+    if mes:
+        mes_str = f"{mes:02d}"
+        where += f" AND (strftime('%m', {alias}.data_inicio) = ? OR strftime('%m', {alias}.data_termino) = ?)"
+        params.extend([mes_str, mes_str])
+    if data_de:
+        where += f" AND {alias}.data_inicio >= ?"
+        params.append(data_de)
+    if data_ate:
+        where += f" AND {alias}.data_termino <= ?"
+        params.append(data_ate)
+    return where, params
+
 @router.get("/summary", response_model=DashboardSummary)
-def get_dashboard_summary(current_user: dict = Depends(get_current_user)):
+def get_dashboard_summary(
+    ano: Optional[int] = None,
+    mes: Optional[int] = None,
+    data_de: Optional[str] = None,
+    data_ate: Optional[str] = None,
+    status: Optional[str] = None,
+    tipo: Optional[str] = None,
+    solicitante: Optional[str] = None,
+    destino: Optional[str] = None,
+    modalidade: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
     today = date.today().isoformat()
     alerts: List[AlertItem] = []
 
+    f_where, f_params = _build_missao_filter(ano, mes, data_de, data_ate, status, tipo, solicitante, destino, modalidade, alias="m")
+
     with get_db() as conn:
         # Total de missões
-        tot_missoes = conn.execute("SELECT COUNT(*) as cnt FROM missoes WHERE status_atual != 'CANCELADA'").fetchone()["cnt"]
+        tot_missoes = conn.execute(f"SELECT COUNT(*) as cnt FROM missoes m {f_where} AND m.status_atual != 'CANCELADA'", f_params).fetchone()["cnt"]
         
         # Missões em andamento
-        em_andamento = conn.execute("SELECT COUNT(*) as cnt FROM missoes WHERE status_atual = 'EM_ANDAMENTO'").fetchone()["cnt"]
+        em_andamento = conn.execute(f"SELECT COUNT(*) as cnt FROM missoes m {f_where} AND m.status_atual = 'EM_ANDAMENTO'", f_params).fetchone()["cnt"]
         
         # Missões em planejamento / tramitação
         planejamento = conn.execute(
-            """
-            SELECT COUNT(*) as cnt FROM missoes 
-            WHERE status_atual IN ('RASCUNHO', 'SOLICITADA', 'EM_ANALISE', 'APROVADA', 'OM_EMITIDA', 'PCDP_TRAMITADA')
-            """
+            f"""
+            SELECT COUNT(*) as cnt FROM missoes m
+            {f_where} AND m.status_atual IN ('RASCUNHO', 'SOLICITADA', 'EM_ANALISE', 'APROVADA', 'OM_EMITIDA', 'PCDP_TRAMITADA')
+            """,
+            f_params
         ).fetchone()["cnt"]
         
         # Concluídas
-        concluidas = conn.execute("SELECT COUNT(*) as cnt FROM missoes WHERE status_atual = 'CONCLUIDA'").fetchone()["cnt"]
+        concluidas = conn.execute(f"SELECT COUNT(*) as cnt FROM missoes m {f_where} AND m.status_atual = 'CONCLUIDA'", f_params).fetchone()["cnt"]
         
         # Servidores ativos
         srv_ativos = conn.execute("SELECT COUNT(*) as cnt FROM servidores WHERE ativo = 1").fetchone()["cnt"]
@@ -47,16 +105,18 @@ def get_dashboard_summary(current_user: dict = Depends(get_current_user)):
 
         # Custos financeiros
         custos = conn.execute(
-            """
+            f"""
             SELECT 
                 COALESCE(SUM(p.valor_total_diarias), 0.0) as tot_diarias,
                 COALESCE(SUM(p.valor_passagem_aerea), 0.0) as tot_passagens,
                 COALESCE(SUM(p.custo_total_servidor), 0.0) as tot_geral
             FROM missoes_participantes p
             JOIN missoes m ON p.missao_id = m.id
-            WHERE m.status_atual NOT IN ('CANCELADA', 'REJEITADA')
-            """
+            {f_where} AND m.status_atual NOT IN ('CANCELADA', 'REJEITADA')
+            """,
+            f_params
         ).fetchone()
+
 
         # Diária padrão atual
         cfg_diaria = conn.execute("SELECT valor FROM configuracoes WHERE chave = 'valor_diaria_padrao'").fetchone()
@@ -145,16 +205,30 @@ def get_dashboard_summary(current_user: dict = Depends(get_current_user)):
     )
 
 @router.get("/charts")
-def get_dashboard_charts(current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+def get_dashboard_charts(
+    ano: Optional[int] = None,
+    mes: Optional[int] = None,
+    data_de: Optional[str] = None,
+    data_ate: Optional[str] = None,
+    status: Optional[str] = None,
+    tipo: Optional[str] = None,
+    solicitante: Optional[str] = None,
+    destino: Optional[str] = None,
+    modalidade: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    f_where, f_params = _build_missao_filter(ano, mes, data_de, data_ate, status, tipo, solicitante, destino, modalidade, alias="m")
+
     with get_db() as conn:
         # Por tipo de missão
         por_tipo = conn.execute(
-            """
-            SELECT tipo_missao, COUNT(*) as qtd
-            FROM missoes
-            WHERE status_atual != 'CANCELADA'
-            GROUP BY tipo_missao
-            """
+            f"""
+            SELECT m.tipo_missao, COUNT(*) as qtd
+            FROM missoes m
+            {f_where} AND m.status_atual != 'CANCELADA'
+            GROUP BY m.tipo_missao
+            """,
+            f_params
         ).fetchall()
 
         # Por cargo
@@ -164,20 +238,52 @@ def get_dashboard_charts(current_user: dict = Depends(get_current_user)) -> Dict
             FROM servidores
             WHERE ativo = 1
             GROUP BY cargo_sigla
+            ORDER BY qtd DESC
             """
         ).fetchall()
 
         # Por status de missão
         por_status = conn.execute(
-            """
-            SELECT status_atual, COUNT(*) as qtd
-            FROM missoes
-            GROUP BY status_atual
-            """
+            f"""
+            SELECT m.status_atual, COUNT(*) as qtd
+            FROM missoes m
+            {f_where}
+            GROUP BY m.status_atual
+            """,
+            f_params
+        ).fetchall()
+
+        # Custos por mês (série temporal para gráficos de linha/barra)
+        custos_mes = conn.execute(
+            f"""
+            SELECT 
+                strftime('%Y-%m', m.data_inicio) as mes_ano,
+                strftime('%m', m.data_inicio) as mes,
+                COALESCE(SUM(p.valor_total_diarias), 0.0) as diarias,
+                COALESCE(SUM(p.valor_passagem_aerea), 0.0) as passagens,
+                COALESCE(SUM(p.custo_total_servidor), 0.0) as total
+            FROM missoes m
+            LEFT JOIN missoes_participantes p ON m.id = p.missao_id
+            {f_where} AND m.status_atual NOT IN ('CANCELADA', 'REJEITADA')
+            GROUP BY strftime('%Y-%m', m.data_inicio)
+            ORDER BY mes_ano ASC
+            """,
+            f_params
         ).fetchall()
 
     return {
         "por_tipo": [dict(r) for r in por_tipo],
         "por_cargo": [dict(r) for r in por_cargo],
-        "por_status": [dict(r) for r in por_status]
+        "por_status": [dict(r) for r in por_status],
+        "custos_por_mes": [
+            {
+                "mes_ano": r["mes_ano"],
+                "mes": r["mes"],
+                "diarias": round(float(r["diarias"]), 2),
+                "passagens": round(float(r["passagens"]), 2),
+                "total": round(float(r["total"]), 2)
+            }
+            for r in custos_mes
+        ]
     }
+

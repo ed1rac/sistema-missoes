@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from app.schemas import (
     MissaoCreate, MissaoUpdate, MissaoOut,
     ParticipanteCreate, ParticipanteUpdate, ParticipanteOut,
-    StatusUpdate, ValorDiariaUpdate
+    StatusUpdate, ValorDiariaUpdate,
+    OrgaoUnidadeCreate, OrgaoUnidadeUpdate, OrgaoUnidadeOut
 )
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user, require_admin, require_write_permission, require_approval_permission, require_admin_only
 from app.database import get_db
 from app.calculator import compute_participant_financials, parse_date
 from app.audit import log_audit
@@ -87,6 +88,12 @@ def list_missoes(
     status: Optional[str] = None,
     tipo: Optional[str] = None,
     solicitante: Optional[str] = None,
+    destino: Optional[str] = None,
+    modalidade: Optional[str] = None,
+    missionario: Optional[str] = None,
+    responsavel: Optional[str] = None,
+    ano: Optional[int] = None,
+    mes: Optional[int] = None,
     data_de: Optional[str] = None,
     data_ate: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
@@ -112,7 +119,7 @@ def list_missoes(
 
     if status:
         query += " AND m.status_atual = ?"
-        params.append(status)
+        params.append(status.upper())
 
     if tipo:
         query += " AND m.tipo_missao = ?"
@@ -121,6 +128,31 @@ def list_missoes(
     if solicitante:
         query += " AND m.unidade_solicitante = ?"
         params.append(solicitante)
+
+    if destino:
+        query += " AND m.unidade_destino = ?"
+        params.append(destino)
+
+    if modalidade:
+        query += " AND m.modalidade = ?"
+        params.append(modalidade.upper())
+
+    if missionario:
+        query += " AND (m.missionario_matricula = ? OR EXISTS (SELECT 1 FROM missoes_participantes mp WHERE mp.missao_id = m.id AND mp.servidor_matricula = ?))"
+        params.extend([missionario, missionario])
+
+    if responsavel:
+        query += " AND m.responsavel_matricula = ?"
+        params.append(responsavel)
+
+    if ano:
+        query += " AND (strftime('%Y', m.data_inicio) = ? OR strftime('%Y', m.data_termino) = ?)"
+        params.extend([str(ano), str(ano)])
+
+    if mes:
+        mes_str = f"{mes:02d}"
+        query += " AND (strftime('%m', m.data_inicio) = ? OR strftime('%m', m.data_termino) = ?)"
+        params.extend([mes_str, mes_str])
 
     if data_de:
         query += " AND m.data_inicio >= ?"
@@ -131,6 +163,7 @@ def list_missoes(
         params.append(data_ate)
 
     query += " GROUP BY m.id ORDER BY m.data_inicio DESC, m.codigo_missao DESC"
+
 
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -181,7 +214,7 @@ def get_missao(codigo_ou_id: str, current_user: dict = Depends(get_current_user)
     return MissaoOut(**m)
 
 @router.post("", response_model=MissaoOut, status_code=status.HTTP_201_CREATED)
-def create_missao(data: MissaoCreate, request: Request, current_user: dict = Depends(require_admin)):
+def create_missao(data: MissaoCreate, request: Request, current_user: dict = Depends(require_write_permission)):
     d_inicio = parse_date(data.data_inicio)
     d_termino = parse_date(data.data_termino)
     if d_termino < d_inicio:
@@ -189,6 +222,7 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
 
     total_dias = (d_termino - d_inicio).days + 1
     mid = f"mis-{uuid.uuid4().hex[:12]}"
+    modalidade = (data.modalidade or "EQUIPE").upper()
 
     with get_db() as conn:
         # Verifica se código já existe
@@ -201,6 +235,33 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
         if not valor_diaria or valor_diaria <= 0:
             cfg = conn.execute("SELECT valor FROM configuracoes WHERE chave = 'valor_diaria_padrao'").fetchone()
             valor_diaria = float(cfg["valor"]) if cfg else 425.00
+
+        # Se modalidade INDIVIDUAL e missionario_matricula informado, validar servidor e conflito
+        if modalidade == "INDIVIDUAL" and data.missionario_matricula:
+            srv = conn.execute(
+                "SELECT matricula, nome_completo, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?",
+                (data.missionario_matricula.strip(),)
+            ).fetchone()
+            if not srv:
+                raise HTTPException(status_code=404, detail=f"Servidor missionário com matrícula '{data.missionario_matricula}' não encontrado.")
+
+            conflict = conn.execute(
+                """
+                SELECT m.codigo_missao, m.titulo, p.data_apresentacao, p.data_retorno
+                FROM missoes_participantes p
+                JOIN missoes m ON p.missao_id = m.id
+                WHERE p.servidor_matricula = ?
+                  AND m.status_atual NOT IN ('CANCELADA', 'REJEITADA')
+                  AND p.data_apresentacao <= ?
+                  AND p.data_retorno >= ?
+                """,
+                (data.missionario_matricula.strip(), str(d_termino), str(d_inicio))
+            ).fetchone()
+            if conflict:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Conflito de agenda: Servidor já possui missão ativa '{conflict['codigo_missao']}' de {conflict['data_apresentacao']} a {conflict['data_retorno']}."
+                )
 
         conn.execute(
             """
@@ -217,11 +278,46 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                 data.tipo_missao, data.unidade_solicitante, data.unidade_destino,
                 data.localidade_descricao.strip(), str(d_inicio), str(d_termino), total_dias,
                 data.responsavel_matricula, data.missionario_matricula,
-                (data.modalidade or "EQUIPE").upper(), data.status_atual or "RASCUNHO",
+                modalidade, data.status_atual or "RASCUNHO",
                 data.numero_sat, data.numero_om, data.numero_pcdp, data.processo_sei,
                 valor_diaria, data.observacoes
             )
         )
+
+        # Se missão for individual e tiver missionário definido, criar participante atômico
+        if modalidade == "INDIVIDUAL" and data.missionario_matricula:
+            srv = conn.execute(
+                "SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?",
+                (data.missionario_matricula.strip(),)
+            ).fetchone()
+            is_sede = 1 if (srv and (srv["unidade_sigla"] == data.unidade_destino or srv["is_missionario_geral"] == 0)) else 0
+            fin = compute_participant_financials(
+                data_apresentacao=str(d_inicio),
+                data_retorno=str(d_termino),
+                is_sede=bool(is_sede),
+                valor_diaria_unitaria=valor_diaria,
+                valor_passagem_aerea=0.0
+            )
+            part_id = f"part-{uuid.uuid4().hex[:10]}"
+            conn.execute(
+                """
+                INSERT INTO missoes_participantes (
+                    id, missao_id, servidor_matricula, papel, meio_transporte, data_apresentacao,
+                    data_retorno, dias_participacao, is_missao_sede, qtd_diarias, valor_diaria_unitaria,
+                    valor_total_diarias, valor_passagem_aerea, outros_custos, custo_total_servidor,
+                    observacoes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    part_id, mid, data.missionario_matricula.strip(), "Missionário Individual", "AEREO",
+                    str(d_inicio), str(d_termino), fin["dias_participacao"], is_sede,
+                    fin["qtd_diarias"], fin["valor_diaria_unitaria"], fin["valor_total_diarias"],
+                    0.0, 0.0, fin["custo_total_servidor"],
+                    "Participante individual vinculado automaticamente."
+                )
+            )
+
         res = _get_missao_full(mid, conn)
 
     log_audit(
@@ -230,13 +326,14 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
         operacao="CREATE",
         entidade_tabela="missoes",
         registro_id=mid,
-        detalhes={"codigo_missao": data.codigo_missao, "titulo": data.titulo, "valor_diaria": valor_diaria}
+        detalhes={"codigo_missao": data.codigo_missao, "titulo": data.titulo, "modalidade": modalidade, "valor_diaria": valor_diaria}
     )
 
     return MissaoOut(**res)
 
+
 @router.put("/{codigo_ou_id}", response_model=MissaoOut)
-def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, current_user: dict = Depends(require_admin)):
+def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, current_user: dict = Depends(require_write_permission)):
     with get_db() as conn:
         m = conn.execute("SELECT * FROM missoes WHERE id = ? OR codigo_missao = ?", (codigo_ou_id, codigo_ou_id)).fetchone()
         if not m:
@@ -277,7 +374,7 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
             params.append(data.responsavel_matricula)
         if data.missionario_matricula is not None:
             updates.append("missionario_matricula = ?")
-            params.append(data.missionario_matricula if data.missionario_matricula.strip() else None)
+            params.append(data.missionario_matricula.strip() if data.missionario_matricula else None)
         if data.modalidade is not None:
             updates.append("modalidade = ?")
             params.append(data.modalidade.upper())
@@ -308,6 +405,59 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
         params.append(m["id"])
 
         conn.execute(f"UPDATE missoes SET {', '.join(updates)} WHERE id = ?", params)
+
+        # Sincronização de participante em missões individuais
+        curr_modalidade = (data.modalidade or m["modalidade"] or "EQUIPE").upper()
+        target_missionario = data.missionario_matricula.strip() if data.missionario_matricula is not None else m["missionario_matricula"]
+        if curr_modalidade == "INDIVIDUAL" and target_missionario:
+            srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (target_missionario,)).fetchone()
+            dest = data.unidade_destino if data.unidade_destino is not None else m["unidade_destino"]
+            is_sede = 1 if (srv and (srv["unidade_sigla"] == dest or srv["is_missionario_geral"] == 0)) else 0
+            diaria_val = float(data.valor_diaria_padrao) if data.valor_diaria_padrao is not None else float(m["valor_diaria_padrao"])
+            fin = compute_participant_financials(
+                data_apresentacao=str(d_inicio),
+                data_retorno=str(d_termino),
+                is_sede=bool(is_sede),
+                valor_diaria_unitaria=diaria_val
+            )
+            part_row = conn.execute("SELECT id FROM missoes_participantes WHERE missao_id = ?", (m["id"],)).fetchone()
+            if part_row:
+                conn.execute(
+                    """
+                    UPDATE missoes_participantes
+                    SET servidor_matricula = ?, data_apresentacao = ?, data_retorno = ?,
+                        dias_participacao = ?, is_missao_sede = ?, qtd_diarias = ?,
+                        valor_diaria_unitaria = ?, valor_total_diarias = ?, custo_total_servidor = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        target_missionario, str(d_inicio), str(d_termino), fin["dias_participacao"],
+                        is_sede, fin["qtd_diarias"], fin["valor_diaria_unitaria"],
+                        fin["valor_total_diarias"], fin["custo_total_servidor"], part_row["id"]
+                    )
+                )
+            else:
+                part_id = f"part-{uuid.uuid4().hex[:10]}"
+                conn.execute(
+                    """
+                    INSERT INTO missoes_participantes (
+                        id, missao_id, servidor_matricula, papel, meio_transporte, data_apresentacao,
+                        data_retorno, dias_participacao, is_missao_sede, qtd_diarias, valor_diaria_unitaria,
+                        valor_total_diarias, valor_passagem_aerea, outros_custos, custo_total_servidor,
+                        observacoes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        part_id, m["id"], target_missionario, "Missionário Individual", "AEREO",
+                        str(d_inicio), str(d_termino), fin["dias_participacao"], is_sede,
+                        fin["qtd_diarias"], fin["valor_diaria_unitaria"], fin["valor_total_diarias"],
+                        0.0, 0.0, fin["custo_total_servidor"],
+                        "Participante individual vinculado automaticamente."
+                    )
+                )
+
         res = _get_missao_full(m["id"], conn)
 
     log_audit(
@@ -322,7 +472,14 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
     return MissaoOut(**res)
 
 @router.patch("/{codigo_ou_id}/status", response_model=MissaoOut)
-def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Request, current_user: dict = Depends(require_admin)):
+def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Request, current_user: dict = Depends(get_current_user)):
+    user_role = current_user.get("role")
+    if user_role in ("GERENCIAL", "SERVIDOR"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permissão insuficiente: Perfil de consulta não pode alterar status de missões."
+        )
+
     status_permitidos = [
         "RASCUNHO", "SOLICITADA", "EM_ANALISE", "REJEITADA", "APROVADA",
         "OM_EMITIDA", "PCDP_TRAMITADA", "EM_ANDAMENTO", "PRESTACAO_CONTAS",
@@ -333,6 +490,14 @@ def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Requ
         raise HTTPException(
             status_code=400,
             detail=f"Status '{payload.novo_status}' inválido. Valores aceitos: {', '.join(status_permitidos)}"
+        )
+
+    # Restrições de perfil para CADASTRADOR
+    status_aprovacao = {"APROVADA", "OM_EMITIDA", "PCDP_TRAMITADA", "CONCLUIDA", "REJEITADA"}
+    if user_role == "CADASTRADOR" and novo_status in status_aprovacao:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Perfil CADASTRADOR não possui permissão para aprovar missões ou emitir OMs/PCDPs."
         )
 
     with get_db() as conn:
@@ -358,6 +523,7 @@ def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Requ
 
     return MissaoOut(**res)
 
+
 # ==============================================================================
 # CAMPO EDITÁVEL DA DIÁRIA E RECALCULO DINÂMICO
 # ==============================================================================
@@ -366,7 +532,7 @@ def update_missao_valor_diaria(
     codigo_ou_id: str,
     payload: ValorDiariaUpdate,
     request: Request,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_write_permission)
 ):
     """
     Atualiza o campo de valor da diária para a missão.
@@ -449,7 +615,7 @@ def add_participante(
     codigo_ou_id: str,
     data: ParticipanteCreate,
     request: Request,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_write_permission)
 ):
     with get_db() as conn:
         m = conn.execute("SELECT * FROM missoes WHERE id = ? OR codigo_missao = ?", (codigo_ou_id, codigo_ou_id)).fetchone()
@@ -559,7 +725,7 @@ def update_participante(
     participante_id: str,
     data: ParticipanteUpdate,
     request: Request,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_write_permission)
 ):
     with get_db() as conn:
         m = conn.execute("SELECT * FROM missoes WHERE id = ? OR codigo_missao = ?", (codigo_ou_id, codigo_ou_id)).fetchone()
@@ -635,7 +801,7 @@ def remove_participante(
     codigo_ou_id: str,
     participante_id: str,
     request: Request,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_write_permission)
 ):
     with get_db() as conn:
         m = conn.execute("SELECT * FROM missoes WHERE id = ? OR codigo_missao = ?", (codigo_ou_id, codigo_ou_id)).fetchone()
@@ -702,13 +868,134 @@ def get_papeis_missao(current_user: dict = Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 @router.get("/meta/unidades")
-def get_unidades(current_user: dict = Depends(get_current_user)):
+def get_unidades(
+    q: Optional[str] = None,
+    uf: Optional[str] = None,
+    ativo: Optional[bool] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = "SELECT * FROM orgao_unidades WHERE 1=1"
+    params = []
+    if q:
+        query += " AND (sigla LIKE ? OR nome_extenso LIKE ? OR municipio LIKE ?)"
+        term = f"%{q.strip()}%"
+        params.extend([term, term, term])
+    if uf:
+        query += " AND uf = ?"
+        params.append(uf.upper())
+    if ativo is not None:
+        query += " AND ativo = ?"
+        params.append(1 if ativo else 0)
+    else:
+        query += " AND ativo = 1"
+
+    query += """
+        ORDER BY 
+            CASE sigla 
+                WHEN 'SR/PF/PB' THEN 1 
+                WHEN 'CGE/PF/PB' THEN 2 
+                WHEN 'PAT/PF/PB' THEN 3 
+                ELSE 4 
+            END, 
+            sigla ASC
+    """
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM orgao_unidades WHERE ativo = 1 ORDER BY sigla").fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [dict(r) for r in rows]
+
+@router.post("/meta/unidades", response_model=OrgaoUnidadeOut, status_code=status.HTTP_201_CREATED)
+def create_unidade(data: OrgaoUnidadeCreate, request: Request, current_user: dict = Depends(require_admin)):
+    uid = f"unid-{uuid.uuid4().hex[:8]}"
+    sigla = data.sigla.strip().upper()
+    with get_db() as conn:
+        exist = conn.execute("SELECT id FROM orgao_unidades WHERE sigla = ?", (sigla,)).fetchone()
+        if exist:
+            raise HTTPException(status_code=400, detail=f"Unidade com sigla '{sigla}' já cadastrada.")
+        conn.execute(
+            """
+            INSERT INTO orgao_unidades (id, sigla, nome_extenso, municipio, uf, is_fronteira, ativo)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (uid, sigla, data.nome_extenso.strip(), data.municipio.strip(), data.uf.strip().upper(), 1 if data.is_fronteira else 0, 1 if data.ativo else 0)
+        )
+    log_audit(
+        usuario_login=current_user["username"],
+        usuario_ip=request.client.host if request.client else "127.0.0.1",
+        operacao="CREATE",
+        entidade_tabela="orgao_unidades",
+        registro_id=uid,
+        detalhes=data.model_dump()
+    )
+    return OrgaoUnidadeOut(id=uid, sigla=sigla, nome_extenso=data.nome_extenso, municipio=data.municipio, uf=data.uf, is_fronteira=data.is_fronteira, ativo=data.ativo)
+
+@router.put("/meta/unidades/{sigla_ou_id}", response_model=OrgaoUnidadeOut)
+def update_unidade(sigla_ou_id: str, data: OrgaoUnidadeUpdate, request: Request, current_user: dict = Depends(require_admin)):
+    with get_db() as conn:
+        u = conn.execute("SELECT * FROM orgao_unidades WHERE id = ? OR sigla = ?", (sigla_ou_id, sigla_ou_id.upper())).fetchone()
+        if not u:
+            raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+        updates = []
+        params = []
+        if data.nome_extenso is not None:
+            updates.append("nome_extenso = ?")
+            params.append(data.nome_extenso.strip())
+        if data.municipio is not None:
+            updates.append("municipio = ?")
+            params.append(data.municipio.strip())
+        if data.uf is not None:
+            updates.append("uf = ?")
+            params.append(data.uf.strip().upper())
+        if data.is_fronteira is not None:
+            updates.append("is_fronteira = ?")
+            params.append(1 if data.is_fronteira else 0)
+        if data.ativo is not None:
+            updates.append("ativo = ?")
+            params.append(1 if data.ativo else 0)
+        if updates:
+            params.append(u["id"])
+            conn.execute(f"UPDATE orgao_unidades SET {', '.join(updates)} WHERE id = ?", params)
+        res = conn.execute("SELECT * FROM orgao_unidades WHERE id = ?", (u["id"],)).fetchone()
+
+    log_audit(
+        usuario_login=current_user["username"],
+        usuario_ip=request.client.host if request.client else "127.0.0.1",
+        operacao="UPDATE",
+        entidade_tabela="orgao_unidades",
+        registro_id=u["id"],
+        detalhes=data.model_dump(exclude_unset=True)
+    )
+    return OrgaoUnidadeOut(
+        id=res["id"],
+        sigla=res["sigla"],
+        nome_extenso=res["nome_extenso"],
+        municipio=res["municipio"],
+        uf=res["uf"],
+        is_fronteira=bool(res["is_fronteira"]),
+        ativo=bool(res["ativo"]),
+        created_at=str(res["created_at"])
+    )
+
+@router.delete("/meta/unidades/{sigla_ou_id}")
+def delete_unidade(sigla_ou_id: str, request: Request, current_user: dict = Depends(require_admin)):
+    with get_db() as conn:
+        u = conn.execute("SELECT * FROM orgao_unidades WHERE id = ? OR sigla = ?", (sigla_ou_id, sigla_ou_id.upper())).fetchone()
+        if not u:
+            raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+        conn.execute("UPDATE orgao_unidades SET ativo = 0 WHERE id = ?", (u["id"],))
+
+    log_audit(
+        usuario_login=current_user["username"],
+        usuario_ip=request.client.host if request.client else "127.0.0.1",
+        operacao="DEACTIVATE",
+        entidade_tabela="orgao_unidades",
+        registro_id=u["id"],
+        detalhes={"sigla": u["sigla"]}
+    )
+    return {"status": "ok", "message": f"Unidade '{u['sigla']}' desativada com sucesso."}
 
 @router.get("/meta/cargos")
 def get_cargos(current_user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM cargos ORDER BY sigla").fetchall()
     return [dict(r) for r in rows]
+
