@@ -45,8 +45,9 @@ def compute_participant_financials(
     dias = (dt_fim - dt_inicio).days + 1
     qtd_diarias = calculate_diarias_count(dias=dias, is_sede=is_sede)
     
-    # Se is_sede, valor unitário não gera diárias
-    valor_unit = float(valor_diaria_unitaria) if not is_sede else 0.0
+    # Para is_sede, qtd_diarias já é 0.0, gerando valor_total_diarias = 0.0
+    # O valor unitário é preservado para histórico e eventuais edições futuras
+    valor_unit = float(valor_diaria_unitaria or 0.0)
     valor_total_diarias = round(qtd_diarias * valor_unit, 2)
     valor_passagem = round(float(valor_passagem_aerea or 0.0), 2)
     outros = round(float(outros_custos or 0.0), 2)
