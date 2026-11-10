@@ -6,7 +6,9 @@ from app.schemas import (
     MissaoCreate, MissaoUpdate, MissaoOut,
     ParticipanteCreate, ParticipanteUpdate, ParticipanteOut,
     StatusUpdate, ValorDiariaUpdate,
-    OrgaoUnidadeCreate, OrgaoUnidadeUpdate, OrgaoUnidadeOut
+    OrgaoUnidadeCreate, OrgaoUnidadeUpdate, OrgaoUnidadeOut,
+    ValorDiariaItem, ValorDiariaItemUpdate,
+    SetorDestinoOut, SetorDestinoCreate
 )
 from app.auth import get_current_user, require_admin, require_write_permission, require_approval_permission, require_admin_only
 from app.database import get_db
@@ -89,6 +91,9 @@ def list_missoes(
     tipo: Optional[str] = None,
     solicitante: Optional[str] = None,
     destino: Optional[str] = None,
+    setor: Optional[str] = None,
+    unidade_pb: Optional[str] = None,
+    meio_transporte: Optional[str] = None,
     modalidade: Optional[str] = None,
     missionario: Optional[str] = None,
     responsavel: Optional[str] = None,
@@ -118,8 +123,19 @@ def list_missoes(
         params.extend([term, term, term, term, term])
 
     if status:
-        query += " AND m.status_atual = ?"
-        params.append(status.upper())
+        st = status.strip()
+        st_upper = st.upper()
+        if st_upper in ("CADASTRO_SCDP", "CADASTRAR_SCDP", "PCDP_CADASTRADA", "PCDP CADASTRADA"):
+            query += " AND m.status_atual IN ('PCDP CADASTRADA', 'PCDP_CADASTRADA', 'PCDP_TRAMITADA', 'OM_EMITIDA', 'OM EMITIDA')"
+        elif st_upper in ("PRESTACAO_CONTAS_PENDENTE", "PRESTACAO_CONTAS", "PCDP_PRESTAR_CONTAS", "PCDP PRESTAR CONTAS"):
+            query += " AND m.status_atual IN ('PRESTACAO_CONTAS', 'PCDP PRESTAR CONTAS', 'PCDP_PRESTAR_CONTAS')"
+        elif st_upper in ("OM_PENDENTE", "OM PENDENTE"):
+            query += " AND m.status_atual IN ('APROVADA', 'SAT ATENDIDA', 'SAT_ATENDIDA', 'SAT PENDENTE', 'INDICADO', 'PENDENTE DE ALOCAÇÃO', 'PENDENTE DE ALOCACAO')"
+        elif st_upper in ("CONCLUIDA", "CONCLUIDO", "CONCLUÍDO", "CONCLUÍDA"):
+            query += " AND m.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído', 'CONCLUÍDA')"
+        else:
+            query += " AND UPPER(m.status_atual) = ?"
+            params.append(st_upper)
 
     if tipo:
         query += " AND m.tipo_missao = ?"
@@ -132,6 +148,26 @@ def list_missoes(
     if destino:
         query += " AND m.unidade_destino = ?"
         params.append(destino)
+
+    if setor:
+        query += " AND m.setor_destino = ?"
+        params.append(setor.strip().upper())
+
+    if meio_transporte:
+        query += " AND (m.meio_transporte = ? OR EXISTS (SELECT 1 FROM missoes_participantes mp_tr WHERE mp_tr.missao_id = m.id AND mp_tr.meio_transporte = ?))"
+        params.extend([meio_transporte.upper(), meio_transporte.upper()])
+
+    if unidade_pb:
+        u_pb = unidade_pb.strip().upper()
+        if "CGE" in u_pb:
+            query += " AND (m.unidade_solicitante LIKE '%CGE%' OR m.unidade_destino LIKE '%CGE%')"
+        elif "PAT" in u_pb:
+            query += " AND (m.unidade_solicitante LIKE '%PAT%' OR m.unidade_destino LIKE '%PAT%')"
+        elif "SR" in u_pb or "PB" in u_pb:
+            query += " AND (m.unidade_solicitante = 'SR/PF/PB' OR m.unidade_destino = 'SR/PF/PB')"
+        else:
+            query += " AND (m.unidade_solicitante = ? OR m.unidade_destino = ?)"
+            params.extend([unidade_pb, unidade_pb])
 
     if modalidade:
         query += " AND m.modalidade = ?"
@@ -164,7 +200,6 @@ def list_missoes(
 
     query += " GROUP BY m.id ORDER BY m.data_inicio DESC, m.codigo_missao DESC"
 
-
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
 
@@ -177,6 +212,7 @@ def list_missoes(
             tipo_missao=r["tipo_missao"],
             unidade_solicitante=r["unidade_solicitante"],
             unidade_destino=r["unidade_destino"],
+            setor_destino=r["setor_destino"],
             localidade_descricao=r["localidade_descricao"],
             data_inicio=str(r["data_inicio"]),
             data_termino=str(r["data_termino"]),
@@ -185,8 +221,10 @@ def list_missoes(
             responsavel_nome=r["responsavel_nome"],
             missionario_matricula=r["missionario_matricula"],
             missionario_nome=r["missionario_nome"],
-            modalidade=r["modalidade"] or "EQUIPE",
+            modalidade=r["modalidade"] or "INDIVIDUAL",
             status_atual=r["status_atual"],
+            meio_transporte=r["meio_transporte"] or "AEREO",
+            custo_estimado_passagens=float(r["custo_estimado_passagens"] or 0.0),
             numero_sat=r["numero_sat"],
             numero_om=r["numero_om"],
             numero_pcdp=r["numero_pcdp"],
@@ -230,11 +268,20 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
         if exist:
             raise HTTPException(status_code=400, detail=f"Já existe missão com o código {data.codigo_missao}.")
 
-        # Se valor_diaria_padrao não informado ou zero, buscar do sistema
+        # Se valor_diaria_padrao não informado ou padrão, buscar da unidade de destino se disponível
         valor_diaria = data.valor_diaria_padrao
+        if data.unidade_destino and (not valor_diaria or valor_diaria == 425.00):
+            u_row = conn.execute("SELECT valor_diaria FROM orgao_unidades WHERE sigla = ?", (data.unidade_destino,)).fetchone()
+            if u_row and u_row["valor_diaria"]:
+                valor_diaria = float(u_row["valor_diaria"])
+
         if not valor_diaria or valor_diaria <= 0:
             cfg = conn.execute("SELECT valor FROM configuracoes WHERE chave = 'valor_diaria_padrao'").fetchone()
             valor_diaria = float(cfg["valor"]) if cfg else 425.00
+
+        meio_transp = (data.meio_transporte or "AEREO").upper()
+        custo_passagem = float(data.custo_estimado_passagens or 0.0) if meio_transp == "AEREO" else 0.0
+        setor_dest = data.setor_destino.strip().upper() if data.setor_destino else None
 
         # Se modalidade INDIVIDUAL e missionario_matricula informado, validar servidor e conflito
         if modalidade == "INDIVIDUAL" and data.missionario_matricula:
@@ -267,18 +314,20 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
             """
             INSERT INTO missoes (
                 id, codigo_missao, titulo, justificativa, tipo_missao, unidade_solicitante,
-                unidade_destino, localidade_descricao, data_inicio, data_termino, total_dias,
-                responsavel_matricula, missionario_matricula, modalidade, status_atual, numero_sat, numero_om, numero_pcdp,
+                unidade_destino, setor_destino, localidade_descricao, data_inicio, data_termino, total_dias,
+                responsavel_matricula, missionario_matricula, modalidade, status_atual,
+                meio_transporte, custo_estimado_passagens, numero_sat, numero_om, numero_pcdp,
                 processo_sei, valor_diaria_padrao, observacoes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mid, data.codigo_missao.strip(), data.titulo.strip(), data.justificativa.strip(),
-                data.tipo_missao, data.unidade_solicitante, data.unidade_destino,
+                data.tipo_missao, data.unidade_solicitante, data.unidade_destino, setor_dest,
                 data.localidade_descricao.strip(), str(d_inicio), str(d_termino), total_dias,
                 data.responsavel_matricula, data.missionario_matricula,
                 modalidade, data.status_atual or "RASCUNHO",
+                meio_transp, custo_passagem,
                 data.numero_sat, data.numero_om, data.numero_pcdp, data.processo_sei,
                 valor_diaria, data.observacoes
             )
@@ -296,7 +345,7 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                 data_retorno=str(d_termino),
                 is_sede=bool(is_sede),
                 valor_diaria_unitaria=valor_diaria,
-                valor_passagem_aerea=0.0
+                valor_passagem_aerea=custo_passagem
             )
             part_id = f"part-{uuid.uuid4().hex[:10]}"
             conn.execute(
@@ -310,13 +359,48 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    part_id, mid, data.missionario_matricula.strip(), "Missionário Individual", "AEREO",
+                    part_id, mid, data.missionario_matricula.strip(), "Missionário Individual", meio_transp,
                     str(d_inicio), str(d_termino), fin["dias_participacao"], is_sede,
                     fin["qtd_diarias"], fin["valor_diaria_unitaria"], fin["valor_total_diarias"],
-                    0.0, 0.0, fin["custo_total_servidor"],
+                    fin["valor_passagem_aerea"], 0.0, fin["custo_total_servidor"],
                     "Participante individual vinculado automaticamente."
                 )
             )
+        elif modalidade == "EQUIPE" and data.servidores_matriculas:
+            # Inserir múltiplos servidores na missão de equipe
+            for idx, mat in enumerate(data.servidores_matriculas):
+                mat_clean = mat.strip()
+                srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (mat_clean,)).fetchone()
+                if not srv:
+                    continue
+                is_sede = 1 if (srv["unidade_sigla"] == data.unidade_destino or srv["is_missionario_geral"] == 0) else 0
+                fin = compute_participant_financials(
+                    data_apresentacao=str(d_inicio),
+                    data_retorno=str(d_termino),
+                    is_sede=bool(is_sede),
+                    valor_diaria_unitaria=valor_diaria,
+                    valor_passagem_aerea=custo_passagem
+                )
+                pid = f"part-{uuid.uuid4().hex[:10]}"
+                conn.execute(
+                    """
+                    INSERT INTO missoes_participantes (
+                        id, missao_id, servidor_matricula, papel, meio_transporte, data_apresentacao,
+                        data_retorno, dias_participacao, is_missao_sede, qtd_diarias, valor_diaria_unitaria,
+                        valor_total_diarias, valor_passagem_aerea, outros_custos, custo_total_servidor,
+                        observacoes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(missao_id, servidor_matricula, data_apresentacao) DO NOTHING
+                    """,
+                    (
+                        pid, mid, mat_clean, "Operador Tático" if idx > 0 else "Coordenador de Missão",
+                        meio_transp, str(d_inicio), str(d_termino), fin["dias_participacao"], is_sede,
+                        fin["qtd_diarias"], fin["valor_diaria_unitaria"], fin["valor_total_diarias"],
+                        fin["valor_passagem_aerea"], 0.0, fin["custo_total_servidor"],
+                        "Participante de equipe vinculado no cadastro inicial."
+                    )
+                )
 
         res = _get_missao_full(mid, conn)
 
@@ -366,9 +450,18 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
         if data.unidade_destino is not None:
             updates.append("unidade_destino = ?")
             params.append(data.unidade_destino)
+        if data.setor_destino is not None:
+            updates.append("setor_destino = ?")
+            params.append(data.setor_destino.strip().upper() if data.setor_destino else None)
         if data.localidade_descricao is not None:
             updates.append("localidade_descricao = ?")
             params.append(data.localidade_descricao.strip())
+        if data.meio_transporte is not None:
+            updates.append("meio_transporte = ?")
+            params.append(data.meio_transporte.strip().upper())
+        if data.custo_estimado_passagens is not None:
+            updates.append("custo_estimado_passagens = ?")
+            params.append(data.custo_estimado_passagens)
         if data.responsavel_matricula is not None:
             updates.append("responsavel_matricula = ?")
             params.append(data.responsavel_matricula)
@@ -500,11 +593,16 @@ def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Requ
         )
 
     status_permitidos = [
+        "INDICADO", "PENDENTE DE ALOCAÇÃO", "PENDENTE DE ALOCACAO",
+        "SAT PENDENTE", "SAT ATENDIDA", "SAT RECUSADA", "SAT REITERADA",
+        "OM EMITIDA", "PCDP CADASTRADA", "PCDP ENCAMINHADA", "PCDP PRESTAR CONTAS",
+        "CONCLUÍDO", "CONCLUIDO",
+        # Legados / compatibilidade com testes e fluxos internos
         "RASCUNHO", "SOLICITADA", "EM_ANALISE", "REJEITADA", "APROVADA",
         "OM_EMITIDA", "PCDP_TRAMITADA", "EM_ANDAMENTO", "PRESTACAO_CONTAS",
         "CONCLUIDA", "CANCELADA"
     ]
-    novo_status = payload.novo_status.upper()
+    novo_status = payload.novo_status.strip().upper()
     if novo_status not in status_permitidos:
         raise HTTPException(
             status_code=400,
@@ -512,7 +610,11 @@ def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Requ
         )
 
     # Restrições de perfil para CADASTRADOR
-    status_aprovacao = {"APROVADA", "OM_EMITIDA", "PCDP_TRAMITADA", "CONCLUIDA", "REJEITADA"}
+    status_aprovacao = {
+        "APROVADA", "OM_EMITIDA", "OM EMITIDA", "PCDP_TRAMITADA", "PCDP CADASTRADA",
+        "PCDP ENCAMINHADA", "CONCLUIDA", "CONCLUIDO", "CONCLUÍDO", "REJEITADA",
+        "SAT ATENDIDA", "SAT RECUSADA"
+    }
     if user_role == "CADASTRADOR" and novo_status in status_aprovacao:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -937,16 +1039,35 @@ def get_unidades(
 def create_unidade(data: OrgaoUnidadeCreate, request: Request, current_user: dict = Depends(require_admin)):
     uid = f"unid-{uuid.uuid4().hex[:8]}"
     sigla = data.sigla.strip().upper()
+
+    v_diaria = data.valor_diaria
+    cat_diaria = data.categoria_diaria
+    tipo_unid = data.tipo_unidade
+
+    if not v_diaria or v_diaria <= 0:
+        if sigla.startswith("DPF/") or "DELEGACIA" in data.nome_extenso.upper():
+            v_diaria = 335.00
+            cat_diaria = "INTERIOR"
+            tipo_unid = "DELEGACIA"
+        elif data.uf in ("DF", "RJ", "SP", "AM"):
+            v_diaria = 425.00
+            cat_diaria = "CAPITAIS_ESPECIAIS"
+            tipo_unid = "SUPERINTENDENCIA" if sigla.startswith("SR/") else "DIRETORIA_DIVISAO"
+        else:
+            v_diaria = 380.00
+            cat_diaria = "CAPITAIS"
+            tipo_unid = "SUPERINTENDENCIA"
+
     with get_db() as conn:
         exist = conn.execute("SELECT id FROM orgao_unidades WHERE sigla = ?", (sigla,)).fetchone()
         if exist:
             raise HTTPException(status_code=400, detail=f"Unidade com sigla '{sigla}' já cadastrada.")
         conn.execute(
             """
-            INSERT INTO orgao_unidades (id, sigla, nome_extenso, municipio, uf, is_fronteira, ativo)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orgao_unidades (id, sigla, nome_extenso, municipio, uf, is_fronteira, valor_diaria, categoria_diaria, tipo_unidade, ativo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (uid, sigla, data.nome_extenso.strip(), data.municipio.strip(), data.uf.strip().upper(), 1 if data.is_fronteira else 0, 1 if data.ativo else 0)
+            (uid, sigla, data.nome_extenso.strip(), data.municipio.strip(), data.uf.strip().upper(), 1 if data.is_fronteira else 0, v_diaria, cat_diaria, tipo_unid, 1 if data.ativo else 0)
         )
     log_audit(
         usuario_login=current_user["username"],
@@ -956,7 +1077,11 @@ def create_unidade(data: OrgaoUnidadeCreate, request: Request, current_user: dic
         registro_id=uid,
         detalhes=data.model_dump()
     )
-    return OrgaoUnidadeOut(id=uid, sigla=sigla, nome_extenso=data.nome_extenso, municipio=data.municipio, uf=data.uf, is_fronteira=data.is_fronteira, ativo=data.ativo)
+    return OrgaoUnidadeOut(
+        id=uid, sigla=sigla, nome_extenso=data.nome_extenso,
+        municipio=data.municipio, uf=data.uf, is_fronteira=data.is_fronteira,
+        valor_diaria=v_diaria, categoria_diaria=cat_diaria, tipo_unidade=tipo_unid, ativo=data.ativo
+    )
 
 @router.put("/meta/unidades/{sigla_ou_id}", response_model=OrgaoUnidadeOut)
 def update_unidade(sigla_ou_id: str, data: OrgaoUnidadeUpdate, request: Request, current_user: dict = Depends(require_admin)):
@@ -978,6 +1103,15 @@ def update_unidade(sigla_ou_id: str, data: OrgaoUnidadeUpdate, request: Request,
         if data.is_fronteira is not None:
             updates.append("is_fronteira = ?")
             params.append(1 if data.is_fronteira else 0)
+        if data.valor_diaria is not None:
+            updates.append("valor_diaria = ?")
+            params.append(data.valor_diaria)
+        if data.categoria_diaria is not None:
+            updates.append("categoria_diaria = ?")
+            params.append(data.categoria_diaria)
+        if data.tipo_unidade is not None:
+            updates.append("tipo_unidade = ?")
+            params.append(data.tipo_unidade)
         if data.ativo is not None:
             updates.append("ativo = ?")
             params.append(1 if data.ativo else 0)
@@ -1001,6 +1135,9 @@ def update_unidade(sigla_ou_id: str, data: OrgaoUnidadeUpdate, request: Request,
         municipio=res["municipio"],
         uf=res["uf"],
         is_fronteira=bool(res["is_fronteira"]),
+        valor_diaria=float(res["valor_diaria"] or 380.00),
+        categoria_diaria=res["categoria_diaria"] or "CAPITAIS",
+        tipo_unidade=res["tipo_unidade"] or "CAPITAL",
         ativo=bool(res["ativo"]),
         created_at=str(res["created_at"])
     )
@@ -1028,4 +1165,113 @@ def get_cargos(current_user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM cargos ORDER BY sigla").fetchall()
     return [dict(r) for r in rows]
+
+# Endpoints de Valores de Diárias
+@router.get("/meta/valores-diarias", response_model=List[ValorDiariaItem])
+def get_valores_diarias(current_user: dict = Depends(get_current_user)):
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM valores_diarias ORDER BY valor ASC").fetchall()
+    return [
+        ValorDiariaItem(
+            id=r["id"],
+            categoria=r["categoria"],
+            descricao=r["descricao"],
+            valor=float(r["valor"]),
+            ativo=bool(r["ativo"]),
+            created_at=str(r["created_at"])
+        )
+        for r in rows
+    ]
+
+@router.put("/meta/valores-diarias/{id_ou_cat}", response_model=ValorDiariaItem)
+def update_valor_diaria(
+    id_ou_cat: str,
+    data: ValorDiariaItemUpdate,
+    request: Request,
+    current_user: dict = Depends(require_admin)
+):
+    with get_db() as conn:
+        r = conn.execute(
+            "SELECT * FROM valores_diarias WHERE id = ? OR categoria = ?",
+            (id_ou_cat, id_ou_cat.upper())
+        ).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Registro de valor de diária não encontrado.")
+
+        updates = ["valor = ?"]
+        params = [data.valor]
+        if data.descricao is not None:
+            updates.append("descricao = ?")
+            params.append(data.descricao.strip())
+        if data.ativo is not None:
+            updates.append("ativo = ?")
+            params.append(1 if data.ativo else 0)
+        params.append(r["id"])
+        conn.execute(f"UPDATE valores_diarias SET {', '.join(updates)} WHERE id = ?", params)
+
+        # Atualizar unidades vinculadas a esta categoria
+        conn.execute("UPDATE orgao_unidades SET valor_diaria = ? WHERE categoria_diaria = ?", (data.valor, r["categoria"]))
+
+        updated = conn.execute("SELECT * FROM valores_diarias WHERE id = ?", (r["id"],)).fetchone()
+
+    log_audit(
+        usuario_login=current_user["username"],
+        usuario_ip=request.client.host if request.client else "127.0.0.1",
+        operacao="UPDATE_VALOR_DIARIA",
+        entidade_tabela="valores_diarias",
+        registro_id=r["id"],
+        detalhes={"valor_anterior": r["valor"], "novo_valor": data.valor, "categoria": r["categoria"]}
+    )
+
+    return ValorDiariaItem(
+        id=updated["id"],
+        categoria=updated["categoria"],
+        descricao=updated["descricao"],
+        valor=float(updated["valor"]),
+        ativo=bool(updated["ativo"]),
+        created_at=str(updated["created_at"])
+    )
+
+# Endpoints de Setores de Destino
+@router.get("/meta/setores", response_model=List[SetorDestinoOut])
+def get_setores(
+    unidade_pai: Optional[str] = "SR/PF/PB",
+    current_user: dict = Depends(get_current_user)
+):
+    with get_db() as conn:
+        if unidade_pai:
+            rows = conn.execute(
+                "SELECT * FROM setores_destino WHERE unidade_pai_sigla = ? AND ativo = 1 ORDER BY sigla ASC",
+                (unidade_pai.strip().upper(),)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM setores_destino WHERE ativo = 1 ORDER BY sigla ASC").fetchall()
+    return [
+        SetorDestinoOut(
+            id=r["id"],
+            sigla=r["sigla"],
+            nome=r["nome"],
+            unidade_pai_sigla=r["unidade_pai_sigla"],
+            ativo=bool(r["ativo"]),
+            created_at=str(r["created_at"])
+        )
+        for r in rows
+    ]
+
+@router.post("/meta/setores", response_model=SetorDestinoOut, status_code=status.HTTP_201_CREATED)
+def create_setor(data: SetorDestinoCreate, request: Request, current_user: dict = Depends(require_admin)):
+    sigla = data.sigla.strip().upper()
+    sid = f"setor-pb-{sigla.lower().replace('/', '-').replace('ç', 'c')}"
+    with get_db() as conn:
+        exist = conn.execute("SELECT id FROM setores_destino WHERE sigla = ?", (sigla,)).fetchone()
+        if exist:
+            raise HTTPException(status_code=400, detail=f"Setor com a sigla '{sigla}' já existe.")
+        conn.execute(
+            """
+            INSERT INTO setores_destino (id, sigla, nome, unidade_pai_sigla, ativo)
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (sid, sigla, data.nome.strip(), data.unidade_pai_sigla.strip().upper())
+        )
+    return SetorDestinoOut(id=sid, sigla=sigla, nome=data.nome, unidade_pai_sigla=data.unidade_pai_sigla, ativo=True)
 
