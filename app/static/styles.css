@@ -1,4 +1,4 @@
-/* SIS-MISSÕES PF - Estilos Customizados */
+/* SIS-MISSÕES PF - Estilos Customizados e Temas */
 
 /* Scrollbar fina corporativa */
 ::-webkit-scrollbar {
@@ -6,7 +6,7 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: rgba(15, 23, 42, 0.6);
 }
 ::-webkit-scrollbar-thumb {
   background: #334155;
@@ -88,6 +88,18 @@
   border: 1px solid #dc2626;
 }
 
+/* Modalidade Badges */
+.badge-EQUIPE {
+  background-color: #1e3a8a;
+  color: #93c5fd;
+  border: 1px solid #3b82f6;
+}
+.badge-INDIVIDUAL {
+  background-color: #701a75;
+  color: #f0abfc;
+  border: 1px solid #d946ef;
+}
+
 /* Animações sutis */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
@@ -96,4 +108,159 @@
 
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* ==============================================================================
+   TEMAS INSTITUCIONAIS: AZUL PF (Padrão), GOV CLARO, BLACK OPS
+   ============================================================================== */
+
+/* 1. TEMA CLARO INSTITUCIONAL (GOV CLARO) */
+body.theme-gov-claro {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+body.theme-gov-claro aside {
+  background-color: #0b2046 !important;
+  border-right-color: #1e3a8a !important;
+}
+
+body.theme-gov-claro main {
+  background-color: #f8fafc !important;
+}
+
+body.theme-gov-claro header {
+  background-color: #ffffff !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+body.theme-gov-claro #page-title {
+  color: #0b2046 !important;
+}
+
+body.theme-gov-claro .bg-slate-950,
+body.theme-gov-claro .bg-slate-950\/60,
+body.theme-gov-claro .bg-slate-950\/80,
+body.theme-gov-claro .bg-slate-900,
+body.theme-gov-claro .bg-slate-900\/90 {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+body.theme-gov-claro .text-white {
+  color: #0f172a !important;
+}
+
+body.theme-gov-claro .text-slate-100,
+body.theme-gov-claro .text-slate-200,
+body.theme-gov-claro .text-slate-300 {
+  color: #334155 !important;
+}
+
+body.theme-gov-claro .text-slate-400 {
+  color: #64748b !important;
+}
+
+body.theme-gov-claro .border-slate-800,
+body.theme-gov-claro .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+
+body.theme-gov-claro .divide-slate-800\/60 > * {
+  border-color: #e2e8f0 !important;
+}
+
+body.theme-gov-claro input,
+body.theme-gov-claro select,
+body.theme-gov-claro textarea {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.theme-gov-claro tr:hover {
+  background-color: #f1f5f9 !important;
+}
+
+body.theme-gov-claro #modal-content {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* 2. TEMA TÁTICO BLACK OPS */
+body.theme-black-ops {
+  background-color: #000000 !important;
+  color: #e4e4e7 !important;
+}
+
+body.theme-black-ops aside {
+  background-color: #050505 !important;
+  border-right-color: #27272a !important;
+}
+
+body.theme-black-ops main {
+  background-color: #09090b !important;
+}
+
+body.theme-black-ops header {
+  background-color: #050505 !important;
+  border-bottom-color: #27272a !important;
+}
+
+body.theme-black-ops .bg-slate-950,
+body.theme-black-ops .bg-slate-950\/60,
+body.theme-black-ops .bg-slate-950\/80,
+body.theme-black-ops .bg-slate-900,
+body.theme-black-ops .bg-slate-900\/90 {
+  background-color: #121214 !important;
+  border-color: #27272a !important;
+}
+
+body.theme-black-ops .border-slate-800,
+body.theme-black-ops .border-slate-700 {
+  border-color: #27272a !important;
+}
+
+body.theme-black-ops .divide-slate-800\/60 > * {
+  border-color: #27272a !important;
+}
+
+body.theme-black-ops input,
+body.theme-black-ops select,
+body.theme-black-ops textarea {
+  background-color: #09090b !important;
+  color: #fafafa !important;
+  border-color: #3f3f46 !important;
+}
+
+body.theme-black-ops tr:hover {
+  background-color: #18181b !important;
+}
+
+body.theme-black-ops #modal-content {
+  background-color: #0c0a09 !important;
+  border-color: #3f3f46 !important;
+}
+
+/* Theme Switcher Button Active Indicator */
+.theme-btn.active-theme {
+  outline: 2px solid #C69214;
+  outline-offset: 1px;
+}
+
+/* Kanban Board Styling */
+.kanban-col {
+  min-width: 280px;
+  max-width: 340px;
+}
+
+.kanban-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kanban-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.4);
 }

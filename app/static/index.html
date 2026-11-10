@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -62,9 +63,11 @@
         </div>
 
         <div class="bg-slate-800/50 p-3 rounded-xl border border-slate-700/60 text-xs text-slate-400 space-y-1">
-          <p class="font-semibold text-slate-200">Credenciais Mestres Homologadas:</p>
-          <p>• Usuário: <span class="text-pf-gold font-mono font-bold">admin</span> | Senha: <span class="font-mono text-slate-300">123456</span></p>
-          <p>• Usuário: <span class="text-pf-gold font-mono font-bold">edkallenn</span> | Senha: <span class="font-mono text-slate-300">123456</span></p>
+          <p class="font-semibold text-slate-200">Credenciais Homologadas no Sistema:</p>
+          <p>• Admin: <span class="text-pf-gold font-mono font-bold">admin</span> / <span class="font-mono text-slate-300">123456</span></p>
+          <p>• Diretor: <span class="text-pf-gold font-mono font-bold">edkallenn</span> / <span class="font-mono text-slate-300">123456</span></p>
+          <p>• Cadastrador: <span class="text-pf-gold font-mono font-bold">cadastrador</span> / <span class="font-mono text-slate-300">123456</span></p>
+          <p>• Gerencial: <span class="text-pf-gold font-mono font-bold">gerencial</span> / <span class="font-mono text-slate-300">123456</span></p>
         </div>
 
         <button type="submit"
@@ -90,7 +93,7 @@
           </div>
           <div>
             <h1 class="font-bold text-white tracking-tight leading-tight">SIS-MISSÕES</h1>
-            <p class="text-[10px] text-pf-gold font-semibold uppercase tracking-wider">Polícia Federal v2.0</p>
+            <p class="text-[10px] text-pf-gold font-semibold uppercase tracking-wider">Polícia Federal v2.1</p>
           </div>
         </div>
 
@@ -124,6 +127,12 @@
           <button onclick="navigate('auditoria')" id="nav-auditoria" class="nav-btn flex items-center w-full px-3 py-2.5 text-xs font-semibold rounded-xl transition">
             <svg class="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             Trilha de Auditoria
+          </button>
+
+          <!-- Gestão de Usuários (Visível para Administradores) -->
+          <button onclick="navigate('usuarios')" id="nav-usuarios" class="nav-btn hidden flex items-center w-full px-3 py-2.5 text-xs font-semibold rounded-xl transition">
+            <svg class="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            Gestão de Usuários
           </button>
 
           <button onclick="navigate('config')" id="nav-config" class="nav-btn flex items-center w-full px-3 py-2.5 text-xs font-semibold rounded-xl transition">
@@ -165,7 +174,21 @@
           </span>
         </div>
         
-        <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-4">
+          <!-- SELETOR DE TEMAS INSTITUCIONAIS -->
+          <div class="flex items-center bg-slate-800/80 border border-slate-700 rounded-xl p-1 space-x-1" title="Alterar Tema Visual">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold px-2">Tema:</span>
+            <button onclick="setTheme('azul-pf')" id="btn-theme-azul-pf" class="theme-btn w-6 h-6 rounded-lg bg-blue-900 border border-blue-600 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Azul PF Escuro (Padrão)">
+              🔵
+            </button>
+            <button onclick="setTheme('gov-claro')" id="btn-theme-gov-claro" class="theme-btn w-6 h-6 rounded-lg bg-slate-200 border border-slate-400 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Gov Claro Institucional">
+              ⚪
+            </button>
+            <button onclick="setTheme('black-ops')" id="btn-theme-black-ops" class="theme-btn w-6 h-6 rounded-lg bg-black border border-zinc-700 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Tático Black Ops">
+              ⚫
+            </button>
+          </div>
+
           <!-- Live Daily Rate Badge -->
           <div class="bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-xl flex items-center space-x-2 text-xs">
             <span class="text-slate-400">Diária Padrão:</span>
@@ -187,7 +210,7 @@
     </main>
   </div>
 
-  <!-- MODAL CONTAINER (Dynamic for Mission, Server, Participant) -->
+  <!-- MODAL CONTAINER (Dynamic for Mission, Server, Participant, Users, Audit) -->
   <div id="modal-container" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-40 hidden">
     <div id="modal-content" class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto p-6">
       <!-- Dynamic modal content -->
