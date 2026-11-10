@@ -88,6 +88,58 @@
   border: 1px solid #dc2626;
 }
 
+/* Badges dos Status Oficiais (Conforme Imagem Oficial do Usuário) */
+.badge-INDICADO {
+  background-color: #3b4252;
+  color: #eceff4;
+  border: 1px solid #4c566a;
+}
+.badge-PENDENTE_DE_ALOCACAO {
+  background-color: #78350f;
+  color: #fef3c7;
+  border: 1px solid #d97706;
+}
+.badge-SAT_PENDENTE {
+  background-color: #854d0e;
+  color: #fef9c3;
+  border: 1px solid #eab308;
+}
+.badge-SAT_ATENDIDA {
+  background-color: #166534;
+  color: #bbf7d0;
+  border: 1px solid #22c55e;
+}
+.badge-SAT_RECUSADA {
+  background-color: #991b1b;
+  color: #fee2e2;
+  border: 1px solid #ef4444;
+}
+.badge-SAT_REITERADA {
+  background-color: #c2410c;
+  color: #ffedd5;
+  border: 1px solid #f97316;
+}
+.badge-PCDP_CADASTRADA {
+  background-color: #4338ca;
+  color: #e0e7ff;
+  border: 1px solid #6366f1;
+}
+.badge-PCDP_ENCAMINHADA {
+  background-color: #6b21a8;
+  color: #f3e8ff;
+  border: 1px solid #a855f7;
+}
+.badge-PCDP_PRESTAR_CONTAS {
+  background-color: #9a3412;
+  color: #ffedd5;
+  border: 1px solid #ea580c;
+}
+.badge-CONCLUIDO {
+  background-color: #14532d;
+  color: #86efac;
+  border: 1px solid #16a34a;
+}
+
 /* Modalidade Badges */
 .badge-EQUIPE {
   background-color: #1e3a8a;
@@ -111,10 +163,10 @@
 }
 
 /* ==============================================================================
-   TEMAS INSTITUCIONAIS: AZUL PF (Padrão), GOV CLARO, BLACK OPS
+   TEMAS INSTITUCIONAIS: AZUL PF (Padrão), GOV CLARO, BLACK OPS, ESMERALDA, AMBER, CYBER, PLATINA
    ============================================================================== */
 
-/* 1. TEMA CLARO INSTITUCIONAL (GOV CLARO) */
+/* 1. TEMA CLARO INSTITUCIONAL (GOV CLARO) - CORREÇÃO DE CONTRASTE E VISIBILIDADE */
 body.theme-gov-claro {
   background-color: #f1f5f9 !important;
   color: #0f172a !important;
@@ -140,27 +192,32 @@ body.theme-gov-claro #page-title {
 
 body.theme-gov-claro .bg-slate-950,
 body.theme-gov-claro .bg-slate-950\/60,
+body.theme-gov-claro .bg-slate-950\/70,
 body.theme-gov-claro .bg-slate-950\/80,
 body.theme-gov-claro .bg-slate-900,
+body.theme-gov-claro .bg-slate-900\/80,
 body.theme-gov-claro .bg-slate-900\/90 {
   background-color: #ffffff !important;
   color: #1e293b !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
 }
 
-body.theme-gov-claro .text-white {
+/* Textos em fundo claro */
+body.theme-gov-claro h1:not(aside *):not(button *),
+body.theme-gov-claro h2:not(aside *):not(button *),
+body.theme-gov-claro h3:not(aside *):not(button *),
+body.theme-gov-claro h4:not(aside *):not(button *),
+body.theme-gov-claro p.text-white,
+body.theme-gov-claro th,
+body.theme-gov-claro td.font-medium,
+body.theme-gov-claro label {
   color: #0f172a !important;
 }
 
-body.theme-gov-claro .text-slate-100,
-body.theme-gov-claro .text-slate-200,
-body.theme-gov-claro .text-slate-300 {
-  color: #334155 !important;
-}
-
-body.theme-gov-claro .text-slate-400 {
-  color: #64748b !important;
+body.theme-gov-claro .text-slate-400,
+body.theme-gov-claro .text-slate-500 {
+  color: #475569 !important;
 }
 
 body.theme-gov-claro .border-slate-800,
@@ -172,12 +229,47 @@ body.theme-gov-claro .divide-slate-800\/60 > * {
   border-color: #e2e8f0 !important;
 }
 
-body.theme-gov-claro input,
+/* Inputs e Selects no tema claro com alta nitidez */
+body.theme-gov-claro input:not([type="checkbox"]):not([type="radio"]),
 body.theme-gov-claro select,
 body.theme-gov-claro textarea {
-  background-color: #f8fafc !important;
+  background-color: #ffffff !important;
   color: #0f172a !important;
-  border-color: #cbd5e1 !important;
+  border: 1px solid #94a3b8 !important;
+}
+
+body.theme-gov-claro input::placeholder,
+body.theme-gov-claro textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+body.theme-gov-claro select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Proteção dos botões para manter legibilidade total */
+body.theme-gov-claro button.bg-pf-700,
+body.theme-gov-claro button.bg-emerald-600,
+body.theme-gov-claro button.bg-blue-600,
+body.theme-gov-claro button.bg-red-600,
+body.theme-gov-claro button.bg-amber-600,
+body.theme-gov-claro button.bg-purple-600 {
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+body.theme-gov-claro button.bg-slate-800,
+body.theme-gov-claro button.bg-slate-900 {
+  background-color: #e2e8f0 !important;
+  color: #1e293b !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+body.theme-gov-claro button.bg-slate-800:hover,
+body.theme-gov-claro button.bg-slate-900:hover {
+  background-color: #cbd5e1 !important;
+  color: #0f172a !important;
 }
 
 body.theme-gov-claro tr:hover {
@@ -187,6 +279,7 @@ body.theme-gov-claro tr:hover {
 body.theme-gov-claro #modal-content {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
+  color: #0f172a !important;
 }
 
 /* 2. TEMA TÁTICO BLACK OPS */
@@ -194,54 +287,224 @@ body.theme-black-ops {
   background-color: #000000 !important;
   color: #e4e4e7 !important;
 }
-
 body.theme-black-ops aside {
   background-color: #050505 !important;
   border-right-color: #27272a !important;
 }
-
 body.theme-black-ops main {
   background-color: #09090b !important;
 }
-
 body.theme-black-ops header {
   background-color: #050505 !important;
   border-bottom-color: #27272a !important;
 }
-
 body.theme-black-ops .bg-slate-950,
 body.theme-black-ops .bg-slate-950\/60,
+body.theme-black-ops .bg-slate-950\/70,
 body.theme-black-ops .bg-slate-950\/80,
 body.theme-black-ops .bg-slate-900,
+body.theme-black-ops .bg-slate-900\/80,
 body.theme-black-ops .bg-slate-900\/90 {
   background-color: #121214 !important;
   border-color: #27272a !important;
 }
-
 body.theme-black-ops .border-slate-800,
 body.theme-black-ops .border-slate-700 {
   border-color: #27272a !important;
 }
-
-body.theme-black-ops .divide-slate-800\/60 > * {
-  border-color: #27272a !important;
-}
-
-body.theme-black-ops input,
+body.theme-black-ops input:not([type="checkbox"]):not([type="radio"]),
 body.theme-black-ops select,
 body.theme-black-ops textarea {
   background-color: #09090b !important;
   color: #fafafa !important;
   border-color: #3f3f46 !important;
 }
-
 body.theme-black-ops tr:hover {
   background-color: #18181b !important;
 }
-
 body.theme-black-ops #modal-content {
   background-color: #0c0a09 !important;
   border-color: #3f3f46 !important;
+}
+
+/* 3. TEMA NOVO: ESMERALDA FED (OPERACIONAL AMAZÔNIA / VERDE MILITAR) */
+body.theme-esmeralda-fed {
+  background-color: #041a12 !important;
+  color: #e2f4ed !important;
+}
+body.theme-esmeralda-fed aside {
+  background-color: #02110c !important;
+  border-right-color: #064e3b !important;
+}
+body.theme-esmeralda-fed main {
+  background-color: #041a12 !important;
+}
+body.theme-esmeralda-fed header {
+  background-color: #03150f !important;
+  border-bottom-color: #064e3b !important;
+}
+body.theme-esmeralda-fed .bg-slate-950,
+body.theme-esmeralda-fed .bg-slate-950\/60,
+body.theme-esmeralda-fed .bg-slate-950\/70,
+body.theme-esmeralda-fed .bg-slate-950\/80,
+body.theme-esmeralda-fed .bg-slate-900,
+body.theme-esmeralda-fed .bg-slate-900\/80,
+body.theme-esmeralda-fed .bg-slate-900\/90 {
+  background-color: #07271c !important;
+  border-color: #0f766e !important;
+}
+body.theme-esmeralda-fed .border-slate-800,
+body.theme-esmeralda-fed .border-slate-700 {
+  border-color: #064e3b !important;
+}
+body.theme-esmeralda-fed input:not([type="checkbox"]):not([type="radio"]),
+body.theme-esmeralda-fed select,
+body.theme-esmeralda-fed textarea {
+  background-color: #031810 !important;
+  color: #a7f3d0 !important;
+  border-color: #059669 !important;
+}
+body.theme-esmeralda-fed tr:hover {
+  background-color: #0b392a !important;
+}
+body.theme-esmeralda-fed #modal-content {
+  background-color: #07271c !important;
+  border-color: #10b981 !important;
+}
+
+/* 4. TEMA NOVO: AMBER SAFARI (TÁTICO SERTÃO / CAATINGA DOURADO) */
+body.theme-amber-safari {
+  background-color: #151009 !important;
+  color: #fef3c7 !important;
+}
+body.theme-amber-safari aside {
+  background-color: #0e0a05 !important;
+  border-right-color: #451a03 !important;
+}
+body.theme-amber-safari main {
+  background-color: #151009 !important;
+}
+body.theme-amber-safari header {
+  background-color: #0f0b06 !important;
+  border-bottom-color: #451a03 !important;
+}
+body.theme-amber-safari .bg-slate-950,
+body.theme-amber-safari .bg-slate-950\/60,
+body.theme-amber-safari .bg-slate-950\/70,
+body.theme-amber-safari .bg-slate-950\/80,
+body.theme-amber-safari .bg-slate-900,
+body.theme-amber-safari .bg-slate-900\/80,
+body.theme-amber-safari .bg-slate-900\/90 {
+  background-color: #211910 !important;
+  border-color: #78350f !important;
+}
+body.theme-amber-safari .border-slate-800,
+body.theme-amber-safari .border-slate-700 {
+  border-color: #451a03 !important;
+}
+body.theme-amber-safari input:not([type="checkbox"]):not([type="radio"]),
+body.theme-amber-safari select,
+body.theme-amber-safari textarea {
+  background-color: #160f08 !important;
+  color: #fde68a !important;
+  border-color: #b45309 !important;
+}
+body.theme-amber-safari tr:hover {
+  background-color: #2d2215 !important;
+}
+body.theme-amber-safari #modal-content {
+  background-color: #211910 !important;
+  border-color: #d97706 !important;
+}
+
+/* 5. TEMA NOVO: CYBER INDIGO (FORENSE E CIBERNÉTICA / ULTRAVIOLETA) */
+body.theme-cyber-indigo {
+  background-color: #0b0c1e !important;
+  color: #e0e7ff !important;
+}
+body.theme-cyber-indigo aside {
+  background-color: #070714 !important;
+  border-right-color: #312e81 !important;
+}
+body.theme-cyber-indigo main {
+  background-color: #0b0c1e !important;
+}
+body.theme-cyber-indigo header {
+  background-color: #070716 !important;
+  border-bottom-color: #312e81 !important;
+}
+body.theme-cyber-indigo .bg-slate-950,
+body.theme-cyber-indigo .bg-slate-950\/60,
+body.theme-cyber-indigo .bg-slate-950\/70,
+body.theme-cyber-indigo .bg-slate-950\/80,
+body.theme-cyber-indigo .bg-slate-900,
+body.theme-cyber-indigo .bg-slate-900\/80,
+body.theme-cyber-indigo .bg-slate-900\/90 {
+  background-color: #131432 !important;
+  border-color: #4338ca !important;
+}
+body.theme-cyber-indigo .border-slate-800,
+body.theme-cyber-indigo .border-slate-700 {
+  border-color: #312e81 !important;
+}
+body.theme-cyber-indigo input:not([type="checkbox"]):not([type="radio"]),
+body.theme-cyber-indigo select,
+body.theme-cyber-indigo textarea {
+  background-color: #090a19 !important;
+  color: #c7d2fe !important;
+  border-color: #6366f1 !important;
+}
+body.theme-cyber-indigo tr:hover {
+  background-color: #1a1b44 !important;
+}
+body.theme-cyber-indigo #modal-content {
+  background-color: #131432 !important;
+  border-color: #818cf8 !important;
+}
+
+/* 6. TEMA NOVO: CINZA PLATINA (MINIMALISTA GRAFITE EXECUTIVO) */
+body.theme-cinza-platina {
+  background-color: #141517 !important;
+  color: #f1f5f9 !important;
+}
+body.theme-cinza-platina aside {
+  background-color: #0d0e10 !important;
+  border-right-color: #27272a !important;
+}
+body.theme-cinza-platina main {
+  background-color: #141517 !important;
+}
+body.theme-cinza-platina header {
+  background-color: #0d0e10 !important;
+  border-bottom-color: #27272a !important;
+}
+body.theme-cinza-platina .bg-slate-950,
+body.theme-cinza-platina .bg-slate-950\/60,
+body.theme-cinza-platina .bg-slate-950\/70,
+body.theme-cinza-platina .bg-slate-950\/80,
+body.theme-cinza-platina .bg-slate-900,
+body.theme-cinza-platina .bg-slate-900\/80,
+body.theme-cinza-platina .bg-slate-900\/90 {
+  background-color: #1f2126 !important;
+  border-color: #3f3f46 !important;
+}
+body.theme-cinza-platina .border-slate-800,
+body.theme-cinza-platina .border-slate-700 {
+  border-color: #27272a !important;
+}
+body.theme-cinza-platina input:not([type="checkbox"]):not([type="radio"]),
+body.theme-cinza-platina select,
+body.theme-cinza-platina textarea {
+  background-color: #121316 !important;
+  color: #e2e8f0 !important;
+  border-color: #52525b !important;
+}
+body.theme-cinza-platina tr:hover {
+  background-color: #2a2c33 !important;
+}
+body.theme-cinza-platina #modal-content {
+  background-color: #1f2126 !important;
+  border-color: #71717a !important;
 }
 
 /* Theme Switcher Button Active Indicator */

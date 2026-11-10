@@ -109,6 +109,11 @@
             Gestão de Missões
           </button>
 
+          <button onclick="navigate('custos')" id="nav-custos" class="nav-btn flex items-center w-full px-3 py-2.5 text-xs font-semibold rounded-xl transition">
+            <svg class="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            Custos por Missão/Missionário
+          </button>
+
           <button onclick="navigate('servidores')" id="nav-servidores" class="nav-btn flex items-center w-full px-3 py-2.5 text-xs font-semibold rounded-xl transition">
             <svg class="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
             Efetivo e Servidores
@@ -191,6 +196,18 @@
             </button>
             <button onclick="setTheme('black-ops')" id="btn-theme-black-ops" class="theme-btn w-6 h-6 rounded-lg bg-black border border-zinc-700 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Tático Black Ops">
               ⚫
+            </button>
+            <button onclick="setTheme('esmeralda-fed')" id="btn-theme-esmeralda-fed" class="theme-btn w-6 h-6 rounded-lg bg-emerald-900 border border-emerald-500 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Verde Operacional Amazônia">
+              🟢
+            </button>
+            <button onclick="setTheme('amber-safari')" id="btn-theme-amber-safari" class="theme-btn w-6 h-6 rounded-lg bg-amber-900 border border-amber-600 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Tático Sertão / Dourado Âmbar">
+              🟠
+            </button>
+            <button onclick="setTheme('cyber-indigo')" id="btn-theme-cyber-indigo" class="theme-btn w-6 h-6 rounded-lg bg-indigo-950 border border-purple-500 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Investigativo Cibernética / Forense">
+              🟣
+            </button>
+            <button onclick="setTheme('cinza-platina')" id="btn-theme-cinza-platina" class="theme-btn w-6 h-6 rounded-lg bg-zinc-800 border border-zinc-500 hover:scale-110 transition flex items-center justify-center text-[10px]" title="Minimalista Platina Executivo">
+              🔲
             </button>
           </div>
 
