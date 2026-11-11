@@ -16,7 +16,7 @@ let DASHBOARD_FILTERS = {
   trimestre: "",
   semestre: "",
   status: "",
-  modalidade: "",
+  modalidade: "INDIVIDUAL",
   tipo: "",
   unidade: "",
   cargo: "",
@@ -26,7 +26,15 @@ let DASHBOARD_FILTERS = {
   data_de: "",
   data_ate: ""
 };
+let MISSOES_FILTERS = {
+  busca: "",
+  status: "",
+  modalidade: "INDIVIDUAL",
+  ano: "",
+  mes: ""
+};
 let CHART_INSTANCES = {};
+let ACTIVE_SERVERS_MODAL = [];
 let METADATA_CACHE = {
   tipos: [],
   unidades: [],
@@ -35,6 +43,21 @@ let METADATA_CACHE = {
   setores: [],
   valoresDiarias: []
 };
+
+// Lista ÚNICA de Status Oficiais (idêntica entre Cadastro, Alteração de Status e Filtros)
+const OFFICIAL_STATUSES = [
+  "Indicado",
+  "Pendente de Alocação",
+  "SAT pendente",
+  "SAT Atendida",
+  "SAT Recusada",
+  "SAT Reiterada",
+  "OM EMITIDA",
+  "PCDP CADASTRADA",
+  "PCDP ENCAMINHADA",
+  "PCDP PRESTAR CONTAS",
+  "Concluído"
+];
 
 // ==============================================================================
 // UTILITÁRIOS DE API E FORMATAÇÃO
@@ -70,10 +93,74 @@ function formatDateBR(dateStr) {
   return `${d}/${m}/${y}`;
 }
 
+function normalizeTextKey(val) {
+  if (!val) return "";
+  return String(val)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/[_\/-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function normStatusKey(status) {
+  const k = normalizeTextKey(status);
+  if (!k) return "";
+  if (k === "CONCLUIDA" || k === "CONCLUIDO") return "CONCLUIDO";
+  if (k === "PRESTACAO CONTAS") return "PCDP PRESTAR CONTAS";
+  return k;
+}
+
+function formatStatusLabel(status) {
+  if (!status) return "-";
+  const k = normStatusKey(status);
+  const oficial = OFFICIAL_STATUSES.find(st => normStatusKey(st) === k);
+  return oficial || status;
+}
+
+function renderOfficialStatusOptions(selectedVal = "", emptyLabel = "Todos os Status") {
+  const normSel = normStatusKey(selectedVal);
+  return `
+    ${emptyLabel ? `<option value="">${emptyLabel}</option>` : ""}
+    ${OFFICIAL_STATUSES.map(st => {
+      const sel = normSel && normSel === normStatusKey(st) ? "selected" : "";
+      return `<option value="${st}" ${sel}>${st}</option>`;
+    }).join("")}
+  `;
+}
+
 function getStatusBadgeClass(status) {
-  if (!status) return "badge-RASCUNHO";
-  const norm = String(status).trim().toUpperCase().replace(/[\s\/-]+/g, '_');
+  if (!status) return "badge-INDICADO";
+  const norm = normStatusKey(status).replace(/\s+/g, "_");
   return `badge-${norm}`;
+}
+
+function formatServidorOptionText(s) {
+  if (!s) return "";
+  const guerra = (s.nome_guerra || "").trim();
+  const nome = (s.nome_completo || "").trim();
+  const rotulo = guerra && nome ? `${guerra} — ${nome}` : (guerra || nome || s.matricula || "");
+  return `[${s.cargo_sigla || "-"}] ${rotulo} (${s.unidade_sigla || "-"}) - Mat. ${s.matricula || "-"}`;
+}
+
+function formatServidorDisplayHtml(nomeGuerra, nomeCompleto, matricula = "") {
+  const guerra = (nomeGuerra || "").trim();
+  const nome = (nomeCompleto || "").trim();
+  if (!guerra && !nome) return matricula ? `<span class="font-mono text-slate-300">${matricula}</span>` : "-";
+  if (guerra && nome) {
+    return `<span class="font-bold text-amber-300">${guerra}</span> <span class="text-slate-300 font-normal">(${nome})</span>`;
+  }
+  return `<span class="font-semibold text-white">${guerra || nome}</span>`;
+}
+
+function servidorMatchesTerm(s, rawTerm) {
+  const term = normalizeTextKey(rawTerm);
+  if (!term) return true;
+  const hay = normalizeTextKey(
+    `${s.nome_guerra || ""} ${s.nome_completo || ""} ${s.matricula || ""} ${s.cargo_sigla || ""} ${s.unidade_sigla || ""}`
+  );
+  return hay.includes(term);
 }
 
 // ==============================================================================
@@ -471,37 +558,18 @@ async function renderDashboard(container) {
             </div>
 
             <div>
-              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Status da Missão (Oficial)</label>
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Status da Missão</label>
               <select id="dash-filtro-status" onchange="aplicarFiltrosDashboard()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
-                <option value="">Todos os Status</option>
-                <optgroup label="Fluxos Agregados">
-                  <option value="CADASTRAR_SCDP" ${DASHBOARD_FILTERS.status === 'CADASTRAR_SCDP' ? 'selected' : ''}>[Etapa] Cadastrar SCDP (OM/PCDP)</option>
-                  <option value="PRESTACAO_CONTAS_PENDENTE" ${DASHBOARD_FILTERS.status === 'PRESTACAO_CONTAS_PENDENTE' ? 'selected' : ''}>[Etapa] Prestação Contas Pendente</option>
-                  <option value="OM_PENDENTE" ${DASHBOARD_FILTERS.status === 'OM_PENDENTE' ? 'selected' : ''}>[Etapa] OM Pendente (SAT Atendida)</option>
-                  <option value="CONCLUIDA" ${DASHBOARD_FILTERS.status === 'CONCLUIDA' ? 'selected' : ''}>[Etapa] Missão Concluída</option>
-                </optgroup>
-                <optgroup label="Status Oficiais">
-                  <option value="Indicado" ${DASHBOARD_FILTERS.status === 'Indicado' ? 'selected' : ''}>Indicado</option>
-                  <option value="Pendente de Alocação" ${DASHBOARD_FILTERS.status === 'Pendente de Alocação' ? 'selected' : ''}>Pendente de Alocação</option>
-                  <option value="SAT pendente" ${DASHBOARD_FILTERS.status === 'SAT pendente' ? 'selected' : ''}>SAT pendente</option>
-                  <option value="SAT Atendida" ${DASHBOARD_FILTERS.status === 'SAT Atendida' ? 'selected' : ''}>SAT Atendida</option>
-                  <option value="SAT Recusada" ${DASHBOARD_FILTERS.status === 'SAT Recusada' ? 'selected' : ''}>SAT Recusada</option>
-                  <option value="SAT Reiterada" ${DASHBOARD_FILTERS.status === 'SAT Reiterada' ? 'selected' : ''}>SAT Reiterada</option>
-                  <option value="OM EMITIDA" ${DASHBOARD_FILTERS.status === 'OM EMITIDA' ? 'selected' : ''}>OM EMITIDA</option>
-                  <option value="PCDP CADASTRADA" ${DASHBOARD_FILTERS.status === 'PCDP CADASTRADA' ? 'selected' : ''}>PCDP CADASTRADA</option>
-                  <option value="PCDP ENCAMINHADA" ${DASHBOARD_FILTERS.status === 'PCDP ENCAMINHADA' ? 'selected' : ''}>PCDP ENCAMINHADA</option>
-                  <option value="PCDP PRESTAR CONTAS" ${DASHBOARD_FILTERS.status === 'PCDP PRESTAR CONTAS' ? 'selected' : ''}>PCDP PRESTAR CONTAS</option>
-                  <option value="Concluído" ${DASHBOARD_FILTERS.status === 'Concluído' ? 'selected' : ''}>Concluído</option>
-                </optgroup>
+                ${renderOfficialStatusOptions(DASHBOARD_FILTERS.status, "Todos os Status")}
               </select>
             </div>
 
             <div>
               <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Modalidade</label>
               <select id="dash-filtro-modalidade" onchange="aplicarFiltrosDashboard()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-                <option value="">Todas</option>
-                <option value="INDIVIDUAL" ${DASHBOARD_FILTERS.modalidade === 'INDIVIDUAL' ? 'selected' : ''}>Individual (1 Servidor)</option>
+                <option value="INDIVIDUAL" ${DASHBOARD_FILTERS.modalidade === 'INDIVIDUAL' ? 'selected' : ''}>Individual (Padrão)</option>
                 <option value="EQUIPE" ${DASHBOARD_FILTERS.modalidade === 'EQUIPE' ? 'selected' : ''}>Equipe Policial</option>
+                <option value="" ${!DASHBOARD_FILTERS.modalidade ? 'selected' : ''}>Todas as Modalidades</option>
               </select>
             </div>
 
@@ -708,7 +776,7 @@ function limparFiltrosDashboard() {
     trimestre: "",
     semestre: "",
     status: "",
-    modalidade: "",
+    modalidade: "INDIVIDUAL",
     tipo: "",
     unidade: "",
     cargo: "",
@@ -979,9 +1047,8 @@ function renderDashboardTabelaHtml(missoes) {
         <table class="w-full text-left text-xs">
           <thead class="text-slate-400 border-b border-slate-800 uppercase font-semibold text-[10px]">
             <tr>
-              <th class="py-2.5 px-3">Código</th>
               <th class="py-2.5 px-3">Modalidade</th>
-              <th class="py-2.5 px-3">Título da Missão</th>
+              <th class="py-2.5 px-3">Missão / Policial</th>
               <th class="py-2.5 px-3">Período</th>
               <th class="py-2.5 px-3">Status</th>
               <th class="py-2.5 px-3">Diária Base</th>
@@ -993,23 +1060,27 @@ function renderDashboardTabelaHtml(missoes) {
           <tbody class="divide-y divide-slate-800/60">
             ${missoes.map(m => `
               <tr class="hover:bg-slate-800/40 transition">
-                <td class="py-3 px-3 font-mono font-bold text-pf-gold">${m.codigo_missao}</td>
                 <td class="py-3 px-3">
                   <span class="badge-status badge-${m.modalidade || 'EQUIPE'}">${m.modalidade || 'EQUIPE'}</span>
                 </td>
-                <td class="py-3 px-3 font-medium text-white max-w-xs truncate">
-                  ${m.titulo}
+                <td class="py-3 px-3 font-medium text-white max-w-xs">
+                  <p class="truncate font-semibold">${m.titulo}</p>
+                  ${m.modalidade === 'INDIVIDUAL' && (m.missionario_nome || m.missionario_nome_guerra) ? `
+                    <div class="text-[11px] truncate">${formatServidorDisplayHtml(m.missionario_nome_guerra, m.missionario_nome, m.missionario_matricula)}</div>
+                  ` : (m.modalidade !== 'INDIVIDUAL' && (m.responsavel_nome || m.responsavel_nome_guerra) ? `
+                    <div class="text-[11px] truncate">Chefe: ${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)}</div>
+                  ` : '')}
                   <div class="text-[10px] text-slate-400 truncate">${m.unidade_solicitante} &rarr; ${m.unidade_destino || m.localidade_descricao}</div>
                 </td>
                 <td class="py-3 px-3 text-slate-400 whitespace-nowrap">${formatDateBR(m.data_inicio)} a ${formatDateBR(m.data_termino)} (${m.total_dias}d)</td>
                 <td class="py-3 px-3">
-                  <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${m.status_atual}</span>
+                  <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${formatStatusLabel(m.status_atual)}</span>
                 </td>
                 <td class="py-3 px-3 font-semibold text-amber-300">${formatMoney(m.valor_diaria_padrao)}</td>
                 <td class="py-3 px-3 text-slate-300">${m.total_participantes} policiais</td>
                 <td class="py-3 px-3 font-bold text-emerald-400">${formatMoney(m.total_custo_geral)}</td>
                 <td class="py-3 px-3 text-right">
-                  <button onclick="openMissaoDetail('${m.codigo_missao}')" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold transition">
+                  <button onclick="openMissaoDetail('${m.id}')" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold transition">
                     Detalhes
                   </button>
                 </td>
@@ -1055,7 +1126,7 @@ function renderDashboardKanbanHtml(missoes) {
     <div class="overflow-x-auto pb-4">
       <div class="flex space-x-4 min-w-[1200px]">
         ${colunas.map(col => {
-          const missCol = missoes.filter(m => col.statusList.includes(m.status_atual));
+          const missCol = missoes.filter(m => col.statusList.some(st => normStatusKey(st) === normStatusKey(m.status_atual)));
           return `
             <div class="kanban-col flex-1 bg-slate-950/60 border border-slate-800 rounded-2xl p-3 flex flex-col max-h-[700px]">
               <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
@@ -1069,11 +1140,16 @@ function renderDashboardKanbanHtml(missoes) {
                 ` : missCol.map(m => `
                   <div class="kanban-card bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-md space-y-2">
                     <div class="flex items-center justify-between">
-                      <span class="font-mono text-xs font-bold text-pf-gold">${m.codigo_missao}</span>
+                      <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[9px]">${formatStatusLabel(m.status_atual)}</span>
                       <span class="badge-status badge-${m.modalidade || 'EQUIPE'} text-[9px]">${m.modalidade || 'EQUIPE'}</span>
                     </div>
 
                     <h5 class="text-xs font-bold text-white line-clamp-2">${m.titulo}</h5>
+                    ${m.modalidade === 'INDIVIDUAL' && (m.missionario_nome || m.missionario_nome_guerra) ? `
+                      <p class="text-[11px] truncate">${formatServidorDisplayHtml(m.missionario_nome_guerra, m.missionario_nome, m.missionario_matricula)}</p>
+                    ` : (m.modalidade !== 'INDIVIDUAL' && (m.responsavel_nome || m.responsavel_nome_guerra) ? `
+                      <p class="text-[11px] truncate">Chefe: ${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)}</p>
+                    ` : '')}
                     <p class="text-[10px] text-slate-400">${m.unidade_solicitante} &rarr; ${m.unidade_destino || m.localidade_descricao}</p>
                     
                     <div class="text-[10px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-800">
@@ -1083,7 +1159,7 @@ function renderDashboardKanbanHtml(missoes) {
 
                     <div class="flex items-center justify-between pt-1">
                       <span class="text-xs font-extrabold text-emerald-400">${formatMoney(m.total_custo_geral)}</span>
-                      <button onclick="openMissaoDetail('${m.codigo_missao}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-semibold transition">
+                      <button onclick="openMissaoDetail('${m.id}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-semibold transition">
                         Gerenciar
                       </button>
                     </div>
@@ -1105,6 +1181,7 @@ async function renderMissoes(container) {
   container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando missões...</div>`;
   try {
     const missoes = await apiFetch("/api/missoes");
+    window.LAST_MISSOES_LIST = missoes;
 
     const podeCriar = CURRENT_USER && (CURRENT_USER.role === "ADMIN" || CURRENT_USER.role === "CADASTRADOR");
 
@@ -1115,7 +1192,7 @@ async function renderMissoes(container) {
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-sm font-bold text-white uppercase tracking-wider">Gestão Corporativa de Missões</h3>
-              <p class="text-xs text-slate-400">Missões em Equipe e Individuais • DPF/PB</p>
+              <p class="text-xs text-slate-400">Missões Individuais (Padrão) e em Equipe • DPF/PB</p>
             </div>
             ${podeCriar ? `
               <button onclick="openModalNovaMissao()" class="bg-gradient-to-r from-pf-gold to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow-lg flex items-center space-x-2 transition">
@@ -1129,41 +1206,32 @@ async function renderMissoes(container) {
             `}
           </div>
 
-          <!-- Filtros Rápidos -->
-          <div class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-2 text-xs pt-2 border-t border-slate-800/80">
+          <!-- Filtros Rápidos HOT -->
+          <div class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-2 text-xs pt-2 border-t border-slate-800/80">
             <div class="md:col-span-2">
-              <input type="text" id="filtro-busca" placeholder="Buscar por código, título, cidade, OM, policial..."
+              <input type="text" id="filtro-busca" value="${MISSOES_FILTERS.busca || ''}" placeholder="Buscar por nome de guerra, policial, título, cidade, OM..."
                      class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pf-gold">
             </div>
 
             <div>
               <select id="filtro-status" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-300 focus:outline-none">
-                <option value="">Todos os Status</option>
-                <option value="RASCUNHO">Rascunho</option>
-                <option value="SOLICITADA">Solicitada</option>
-                <option value="APROVADA">Aprovada</option>
-                <option value="OM_EMITIDA">OM Emitida</option>
-                <option value="PCDP_TRAMITADA">PCDP Tramitada</option>
-                <option value="EM_ANDAMENTO">Em Andamento</option>
-                <option value="PRESTACAO_CONTAS">Prestação Contas</option>
-                <option value="CONCLUIDA">Concluída</option>
-                <option value="CANCELADA">Cancelada</option>
+                ${renderOfficialStatusOptions(MISSOES_FILTERS.status, "Todos os Status")}
               </select>
             </div>
 
             <div>
               <select id="filtro-modalidade" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-300 focus:outline-none">
-                <option value="">Todas as Modalidades</option>
-                <option value="EQUIPE">Equipe Policial</option>
-                <option value="INDIVIDUAL">Missão Individual</option>
+                <option value="INDIVIDUAL" ${MISSOES_FILTERS.modalidade === 'INDIVIDUAL' ? 'selected' : ''}>Missão Individual (Padrão)</option>
+                <option value="EQUIPE" ${MISSOES_FILTERS.modalidade === 'EQUIPE' ? 'selected' : ''}>Equipe Policial</option>
+                <option value="" ${!MISSOES_FILTERS.modalidade ? 'selected' : ''}>Todas as Modalidades</option>
               </select>
             </div>
 
             <div>
               <select id="filtro-ano" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-300 focus:outline-none">
                 <option value="">Todos os Anos</option>
-                <option value="2026">Ano 2026</option>
-                <option value="2025">Ano 2025</option>
+                <option value="2026" ${MISSOES_FILTERS.ano === '2026' ? 'selected' : ''}>Ano 2026</option>
+                <option value="2025" ${MISSOES_FILTERS.ano === '2025' ? 'selected' : ''}>Ano 2025</option>
               </select>
             </div>
 
@@ -1173,9 +1241,15 @@ async function renderMissoes(container) {
                 ${[...Array(12).keys()].map(i => {
                   const m = String(i + 1).padStart(2, '0');
                   const meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-                  return `<option value="${m}">${m} - ${meses[i]}</option>`;
+                  return `<option value="${m}" ${MISSOES_FILTERS.mes === m ? 'selected' : ''}>${m} - ${meses[i]}</option>`;
                 }).join('')}
               </select>
+            </div>
+
+            <div class="flex items-stretch">
+              <button type="button" onclick="limparFiltrosMissoes()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center justify-center" title="Limpar todos os filtros">
+                ✕ Limpar Filtros
+              </button>
             </div>
           </div>
         </div>
@@ -1186,9 +1260,8 @@ async function renderMissoes(container) {
             <table class="w-full text-left text-xs" id="tabela-missoes">
               <thead class="text-slate-400 border-b border-slate-800 uppercase font-semibold text-[10px]">
                 <tr>
-                  <th class="py-3 px-3">Código</th>
                   <th class="py-3 px-3">Modalidade</th>
-                  <th class="py-3 px-3">Título / Descrição</th>
+                  <th class="py-3 px-3">Título / Policial (Guerra)</th>
                   <th class="py-3 px-3">Origem / Destino</th>
                   <th class="py-3 px-3">Período</th>
                   <th class="py-3 px-3">Status</th>
@@ -1207,13 +1280,16 @@ async function renderMissoes(container) {
       </div>
     `;
 
-    // Listeners dos filtros
-    const onFilterChange = () => applyMissoesFilter(missoes);
+    // Listeners dos filtros HOT
+    const onFilterChange = () => applyMissoesFilter(window.LAST_MISSOES_LIST || missoes);
     document.getElementById("filtro-busca").addEventListener("input", onFilterChange);
     document.getElementById("filtro-status").addEventListener("change", onFilterChange);
     document.getElementById("filtro-modalidade").addEventListener("change", onFilterChange);
     document.getElementById("filtro-ano").addEventListener("change", onFilterChange);
     document.getElementById("filtro-mes").addEventListener("change", onFilterChange);
+
+    // Aplicar filtro padrão (Missões Individuais) imediatamente ao carregar
+    applyMissoesFilter(missoes);
 
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao listar missões: ${err.message}</div>`;
@@ -1222,20 +1298,19 @@ async function renderMissoes(container) {
 
 function renderMissoesRows(list) {
   if (list.length === 0) {
-    return `<tr><td colspan="10" class="text-center py-8 text-slate-500">Nenhuma missão encontrada com os filtros aplicados.</td></tr>`;
+    return `<tr><td colspan="9" class="text-center py-8 text-slate-500">Nenhuma missão encontrada com os filtros aplicados.</td></tr>`;
   }
   return list.map(m => `
     <tr class="hover:bg-slate-800/40 transition">
-      <td class="py-3 px-3 font-mono font-bold text-pf-gold">${m.codigo_missao}</td>
       <td class="py-3 px-3">
         <span class="badge-status badge-${m.modalidade || 'EQUIPE'} text-[10px]">${m.modalidade || 'EQUIPE'}</span>
       </td>
       <td class="py-3 px-3">
         <p class="font-semibold text-white max-w-xs truncate">${m.titulo}</p>
-        ${m.modalidade === 'INDIVIDUAL' && m.missionario_nome ? `
-          <p class="text-[10px] text-fuchsia-400 font-medium">Missionário: ${m.missionario_nome}</p>
-        ` : (m.responsavel_nome ? `
-          <p class="text-[10px] text-slate-400">Chefe: ${m.responsavel_nome}</p>
+        ${m.modalidade === 'INDIVIDUAL' && (m.missionario_nome || m.missionario_nome_guerra) ? `
+          <p class="text-[11px] font-medium">Missionário: ${formatServidorDisplayHtml(m.missionario_nome_guerra, m.missionario_nome, m.missionario_matricula)}</p>
+        ` : (m.modalidade !== 'INDIVIDUAL' && (m.responsavel_nome || m.responsavel_nome_guerra) ? `
+          <p class="text-[11px] text-slate-400">Chefe: ${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)}</p>
         ` : '')}
       </td>
       <td class="py-3 px-3 text-slate-300">
@@ -1243,7 +1318,7 @@ function renderMissoesRows(list) {
       </td>
       <td class="py-3 px-3 text-slate-400 whitespace-nowrap">${formatDateBR(m.data_inicio)} a ${formatDateBR(m.data_termino)} (${m.total_dias}d)</td>
       <td class="py-3 px-3">
-        <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${m.status_atual}</span>
+        <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${formatStatusLabel(m.status_atual)}</span>
       </td>
       <td class="py-3 px-3 font-bold text-amber-300">
         <span class="bg-amber-950/40 border border-amber-800/60 px-2 py-0.5 rounded text-[11px]">
@@ -1253,7 +1328,7 @@ function renderMissoesRows(list) {
       <td class="py-3 px-3 text-slate-300">${m.total_participantes} servidores</td>
       <td class="py-3 px-3 font-bold text-emerald-400">${formatMoney(m.total_custo_geral)}</td>
       <td class="py-3 px-3 text-right">
-        <button onclick="openMissaoDetail('${m.codigo_missao}')" class="px-2.5 py-1 bg-pf-700 hover:bg-pf-600 text-white rounded text-[11px] font-semibold transition">
+        <button onclick="openMissaoDetail('${m.id}')" class="px-2.5 py-1 bg-pf-700 hover:bg-pf-600 text-white rounded text-[11px] font-semibold transition">
           Gerenciar
         </button>
       </td>
@@ -1262,22 +1337,32 @@ function renderMissoesRows(list) {
 }
 
 function applyMissoesFilter(allMissions) {
-  const busca = document.getElementById("filtro-busca").value.toLowerCase();
-  const status = document.getElementById("filtro-status").value;
-  const modalidade = document.getElementById("filtro-modalidade").value;
-  const ano = document.getElementById("filtro-ano").value;
-  const mes = document.getElementById("filtro-mes").value;
+  const buscaRaw = document.getElementById("filtro-busca")?.value || "";
+  const busca = normalizeTextKey(buscaRaw);
+  const status = document.getElementById("filtro-status")?.value || "";
+  const modalidade = document.getElementById("filtro-modalidade")?.value ?? MISSOES_FILTERS.modalidade;
+  const ano = document.getElementById("filtro-ano")?.value || "";
+  const mes = document.getElementById("filtro-mes")?.value || "";
+
+  MISSOES_FILTERS = { busca: buscaRaw, status, modalidade, ano, mes };
+  const targetStatusKey = normStatusKey(status);
 
   const filtered = allMissions.filter(m => {
-    const matchBusca = !busca || 
-      m.codigo_missao.toLowerCase().includes(busca) ||
-      m.titulo.toLowerCase().includes(busca) ||
-      m.localidade_descricao.toLowerCase().includes(busca) ||
-      (m.numero_om && m.numero_om.toLowerCase().includes(busca)) ||
-      (m.missionario_nome && m.missionario_nome.toLowerCase().includes(busca)) ||
-      (m.responsavel_nome && m.responsavel_nome.toLowerCase().includes(busca));
-    
-    const matchStatus = !status || m.status_atual === status;
+    const matchBusca = !busca ||
+      normalizeTextKey(m.titulo).includes(busca) ||
+      normalizeTextKey(m.localidade_descricao).includes(busca) ||
+      normalizeTextKey(m.unidade_solicitante).includes(busca) ||
+      normalizeTextKey(m.unidade_destino).includes(busca) ||
+      normalizeTextKey(m.setor_destino).includes(busca) ||
+      normalizeTextKey(m.numero_om).includes(busca) ||
+      normalizeTextKey(m.numero_pcdp).includes(busca) ||
+      normalizeTextKey(m.missionario_nome).includes(busca) ||
+      normalizeTextKey(m.missionario_nome_guerra).includes(busca) ||
+      normalizeTextKey(m.missionario_matricula).includes(busca) ||
+      normalizeTextKey(m.responsavel_nome).includes(busca) ||
+      normalizeTextKey(m.responsavel_nome_guerra).includes(busca);
+
+    const matchStatus = !targetStatusKey || normStatusKey(m.status_atual) === targetStatusKey;
     const matchModalidade = !modalidade || (m.modalidade || 'EQUIPE') === modalidade;
     const matchAno = !ano || (m.data_inicio && m.data_inicio.startsWith(ano));
     const matchMes = !mes || (m.data_inicio && m.data_inicio.slice(5, 7) === mes);
@@ -1285,7 +1370,29 @@ function applyMissoesFilter(allMissions) {
     return matchBusca && matchStatus && matchModalidade && matchAno && matchMes;
   });
 
-  document.getElementById("missoes-tbody").innerHTML = renderMissoesRows(filtered);
+  const tbody = document.getElementById("missoes-tbody");
+  if (tbody) tbody.innerHTML = renderMissoesRows(filtered);
+}
+
+function limparFiltrosMissoes() {
+  MISSOES_FILTERS = {
+    busca: "",
+    status: "",
+    modalidade: "INDIVIDUAL",
+    ano: "",
+    mes: ""
+  };
+  const bEl = document.getElementById("filtro-busca");
+  const sEl = document.getElementById("filtro-status");
+  const mEl = document.getElementById("filtro-modalidade");
+  const aEl = document.getElementById("filtro-ano");
+  const msEl = document.getElementById("filtro-mes");
+  if (bEl) bEl.value = "";
+  if (sEl) sEl.value = "";
+  if (mEl) mEl.value = "INDIVIDUAL";
+  if (aEl) aEl.value = "";
+  if (msEl) msEl.value = "";
+  applyMissoesFilter(window.LAST_MISSOES_LIST || []);
 }
 
 // ==============================================================================
@@ -1297,11 +1404,15 @@ let CUSTOS_FILTERS = {
   setor: "",
   meio_transporte: "",
   unidade_pb: "",
+  modalidade: "INDIVIDUAL",
+  status: "",
   cargo: "",
   busca: ""
 };
 
 async function renderCustos(container) {
+  const activeId = document.activeElement?.id;
+  const cursorPos = document.activeElement?.selectionStart;
   container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando demonstrativo consolidado de custos...</div>`;
 
   try {
@@ -1311,6 +1422,8 @@ async function renderCustos(container) {
     if (CUSTOS_FILTERS.setor) qParams.append("setor", CUSTOS_FILTERS.setor);
     if (CUSTOS_FILTERS.meio_transporte) qParams.append("meio_transporte", CUSTOS_FILTERS.meio_transporte);
     if (CUSTOS_FILTERS.unidade_pb) qParams.append("unidade_pb", CUSTOS_FILTERS.unidade_pb);
+    if (CUSTOS_FILTERS.modalidade) qParams.append("modalidade", CUSTOS_FILTERS.modalidade);
+    if (CUSTOS_FILTERS.status) qParams.append("status", CUSTOS_FILTERS.status);
 
     const qs = qParams.toString() ? `?${qParams.toString()}` : "";
     const [missoes, summary] = await Promise.all([
@@ -1323,9 +1436,10 @@ async function renderCustos(container) {
     missoes.forEach(m => {
       if (m.participantes && m.participantes.length > 0) {
         m.participantes.forEach(p => {
+          const tDiarias = p.valor_total_diarias ?? p.total_diarias ?? 0;
+          const vPassagem = p.valor_passagem_aerea ?? (m.meio_transporte === 'AEREO' ? (m.custo_estimado_passagens || 0) : 0);
           items.push({
             missao_id: m.id,
-            codigo_missao: m.codigo_missao,
             titulo_missao: m.titulo,
             unidade_solicitante: m.unidade_solicitante,
             unidade_destino: m.unidade_destino || m.localidade_descricao,
@@ -1335,20 +1449,22 @@ async function renderCustos(container) {
             meio_transporte: p.meio_transporte || m.meio_transporte || "TERRESTRE",
             servidor_matricula: p.servidor_matricula,
             servidor_nome: p.servidor_nome || m.missionario_nome || "-",
-            cargo_sigla: p.cargo_sigla || "-",
+            servidor_nome_guerra: p.servidor_nome_guerra || m.missionario_nome_guerra || "",
+            cargo_sigla: p.servidor_cargo || p.cargo_sigla || "-",
             data_apresentacao: p.data_apresentacao || m.data_inicio,
             data_retorno: p.data_retorno || m.data_termino,
             qtd_diarias: p.qtd_diarias || m.total_dias || 0,
             valor_diaria_unitaria: p.valor_diaria_unitaria || m.valor_diaria_padrao || 425,
-            total_diarias: p.total_diarias || 0,
-            valor_passagem_aerea: p.valor_passagem_aerea || (m.meio_transporte === 'AEREO' ? (m.custo_estimado_passagens || 0) : 0),
-            total_custo_individual: p.total_custo_individual || (p.total_diarias + (p.valor_passagem_aerea || 0))
+            total_diarias: tDiarias,
+            valor_passagem_aerea: vPassagem,
+            total_custo_individual: p.custo_total_servidor ?? p.total_custo_individual ?? (tDiarias + vPassagem)
           });
         });
-      } else if (m.modalidade === "INDIVIDUAL" && m.missionario_nome) {
+      } else if (m.modalidade === "INDIVIDUAL" && (m.missionario_nome || m.missionario_nome_guerra)) {
+        const tDiarias = m.total_custo_diarias ?? ((m.total_dias || 0) * (m.valor_diaria_padrao || 425));
+        const vPassagem = m.total_custo_passagens || m.custo_estimado_passagens || 0;
         items.push({
           missao_id: m.id,
-          codigo_missao: m.codigo_missao,
           titulo_missao: m.titulo,
           unidade_solicitante: m.unidade_solicitante,
           unidade_destino: m.unidade_destino || m.localidade_descricao,
@@ -1357,28 +1473,53 @@ async function renderCustos(container) {
           status_atual: m.status_atual,
           meio_transporte: m.meio_transporte || "AEREO",
           servidor_matricula: m.missionario_matricula || "-",
-          servidor_nome: m.missionario_nome,
+          servidor_nome: m.missionario_nome || "-",
+          servidor_nome_guerra: m.missionario_nome_guerra || "",
           cargo_sigla: "-",
           data_apresentacao: m.data_inicio,
           data_retorno: m.data_termino,
           qtd_diarias: m.total_dias || 0,
           valor_diaria_unitaria: m.valor_diaria_padrao || 425,
-          total_diarias: m.total_custo_diarias || ((m.total_dias || 0) * (m.valor_diaria_padrao || 425)),
-          valor_passagem_aerea: m.custo_estimado_passagens || m.total_custo_passagens || 0,
-          total_custo_individual: m.total_custo_geral || 0
+          total_diarias: tDiarias,
+          valor_passagem_aerea: vPassagem,
+          total_custo_individual: m.total_custo_geral ?? (tDiarias + vPassagem)
+        });
+      } else {
+        const tDiarias = m.total_custo_diarias || 0;
+        const vPassagem = m.total_custo_passagens || m.custo_estimado_passagens || 0;
+        items.push({
+          missao_id: m.id,
+          titulo_missao: m.titulo,
+          unidade_solicitante: m.unidade_solicitante,
+          unidade_destino: m.unidade_destino || m.localidade_descricao,
+          setor_destino: m.setor_destino || "-",
+          modalidade: m.modalidade || "EQUIPE",
+          status_atual: m.status_atual,
+          meio_transporte: m.meio_transporte || "AEREO",
+          servidor_matricula: m.responsavel_matricula || "-",
+          servidor_nome: m.responsavel_nome ? `${m.responsavel_nome} (+${m.total_participantes || 0} pol.)` : `Equipe (${m.total_participantes || 0} policiais)`,
+          servidor_nome_guerra: m.responsavel_nome_guerra || "",
+          cargo_sigla: "EQUIPE",
+          data_apresentacao: m.data_inicio,
+          data_retorno: m.data_termino,
+          qtd_diarias: m.total_dias || 0,
+          valor_diaria_unitaria: m.valor_diaria_padrao || 425,
+          total_diarias: tDiarias,
+          valor_passagem_aerea: vPassagem,
+          total_custo_individual: m.total_custo_geral ?? (tDiarias + vPassagem)
         });
       }
     });
 
-    // Filtros locais (busca, cargo)
+    // Filtros locais (busca com nome de guerra, cargo)
     if (CUSTOS_FILTERS.busca) {
-      const b = CUSTOS_FILTERS.busca.toLowerCase();
+      const b = normalizeTextKey(CUSTOS_FILTERS.busca);
       items = items.filter(it =>
-        it.codigo_missao.toLowerCase().includes(b) ||
-        it.titulo_missao.toLowerCase().includes(b) ||
-        it.servidor_nome.toLowerCase().includes(b) ||
-        it.servidor_matricula.toLowerCase().includes(b) ||
-        it.setor_destino.toLowerCase().includes(b)
+        normalizeTextKey(it.titulo_missao).includes(b) ||
+        normalizeTextKey(it.servidor_nome).includes(b) ||
+        normalizeTextKey(it.servidor_nome_guerra).includes(b) ||
+        normalizeTextKey(it.servidor_matricula).includes(b) ||
+        normalizeTextKey(it.setor_destino).includes(b)
       );
     }
     if (CUSTOS_FILTERS.cargo) {
@@ -1399,7 +1540,7 @@ async function renderCustos(container) {
                 <h3 class="text-base font-bold text-white uppercase tracking-wider">Demonstrativo de Custos por Missão & Missionário</h3>
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-800 text-pf-gold">Visão Individualizada</span>
               </div>
-              <p class="text-xs text-slate-400 mt-1">Detalhamento individual de diárias e passagens aéreas por servidor com filtros por setor, transporte e período</p>
+              <p class="text-xs text-slate-400 mt-1">Detalhamento individual de diárias e passagens aéreas por servidor com filtros por setor, modalidade, status, transporte e período</p>
             </div>
             <div class="flex items-center space-x-2">
               <button onclick="navigate('dashboard')" class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 transition">
@@ -1412,65 +1553,71 @@ async function renderCustos(container) {
           </div>
 
           <!-- Filtros HOT de Custos -->
-          <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-2 text-xs pt-2 border-t border-slate-850">
+          <div class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-2 text-xs pt-2 border-t border-slate-850">
             <div class="lg:col-span-2">
-              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Buscar por Policial, Matrícula, Código ou Setor</label>
-              <input type="text" id="custos-busca" value="${CUSTOS_FILTERS.busca}" oninput="aplicarFiltrosCustos()" placeholder="Ex: João, 25489, DRPJ, MIS-2026..."
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Buscar (Nome Guerra, Policial, Setor)</label>
+              <input type="text" id="custos-busca" value="${CUSTOS_FILTERS.busca}" oninput="aplicarFiltrosCustos()" placeholder="Ex: SILVEIRA, João, DRPJ..."
                      class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
             </div>
 
             <div>
-              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Setor SR/PB (52 Setores)</label>
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Modalidade</label>
+              <select id="custos-modalidade" onchange="aplicarFiltrosCustos()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                <option value="INDIVIDUAL" ${CUSTOS_FILTERS.modalidade === 'INDIVIDUAL' ? 'selected' : ''}>Individual (Padrão)</option>
+                <option value="EQUIPE" ${CUSTOS_FILTERS.modalidade === 'EQUIPE' ? 'selected' : ''}>Equipe</option>
+                <option value="" ${!CUSTOS_FILTERS.modalidade ? 'selected' : ''}>Todas</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Status</label>
+              <select id="custos-status" onchange="aplicarFiltrosCustos()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                ${renderOfficialStatusOptions(CUSTOS_FILTERS.status, "Todos os Status")}
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Setor SR/PB</label>
               <select id="custos-setor" onchange="aplicarFiltrosCustos()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-                <option value="">Todos os 52 Setores</option>
+                <option value="">Todos Setores</option>
                 ${METADATA_CACHE.setores.map(s => `<option value="${s.sigla}" ${CUSTOS_FILTERS.setor === s.sigla ? 'selected' : ''}>${s.sigla} - ${s.nome}</option>`).join('')}
               </select>
             </div>
 
             <div>
-              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Meio de Transporte</label>
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Transporte</label>
               <select id="custos-transporte" onchange="aplicarFiltrosCustos()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-                <option value="">Todos os Meios</option>
-                <option value="AEREO" ${CUSTOS_FILTERS.meio_transporte === 'AEREO' ? 'selected' : ''}>✈️ Aéreo (Passagem)</option>
-                <option value="TERRESTRE" ${CUSTOS_FILTERS.meio_transporte === 'TERRESTRE' ? 'selected' : ''}>🚗 Terrestre / Viatura</option>
-                <option value="PROPRIO" ${CUSTOS_FILTERS.meio_transporte === 'PROPRIO' ? 'selected' : ''}>🚙 Veículo Próprio</option>
+                <option value="">Todos</option>
+                <option value="AEREO" ${CUSTOS_FILTERS.meio_transporte === 'AEREO' ? 'selected' : ''}>✈️ Aéreo</option>
+                <option value="TERRESTRE" ${CUSTOS_FILTERS.meio_transporte === 'TERRESTRE' ? 'selected' : ''}>🚗 Terrestre</option>
+                <option value="PROPRIO" ${CUSTOS_FILTERS.meio_transporte === 'PROPRIO' ? 'selected' : ''}>🚙 Próprio</option>
               </select>
             </div>
 
             <div>
-              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Unidade da PB</label>
-              <select id="custos-unidade-pb" onchange="aplicarFiltrosCustos()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
-                <option value="">Todas da PB</option>
-                <option value="SR/PF/PB" ${CUSTOS_FILTERS.unidade_pb === 'SR/PF/PB' ? 'selected' : ''}>SR/PF/PB</option>
-                <option value="DPF/CGE/PB" ${CUSTOS_FILTERS.unidade_pb === 'DPF/CGE/PB' ? 'selected' : ''}>DPF/CGE/PB</option>
-                <option value="DPF/PAT/PB" ${CUSTOS_FILTERS.unidade_pb === 'DPF/PAT/PB' ? 'selected' : ''}>DPF/PAT/PB</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Ano / Mês</label>
+              <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Unidade PB / Ano</label>
               <div class="flex space-x-1">
+                <select id="custos-unidade-pb" onchange="aplicarFiltrosCustos()" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+                  <option value="">PB</option>
+                  <option value="SR/PF/PB" ${CUSTOS_FILTERS.unidade_pb === 'SR/PF/PB' ? 'selected' : ''}>SR/PF/PB</option>
+                  <option value="DPF/CGE/PB" ${CUSTOS_FILTERS.unidade_pb === 'DPF/CGE/PB' ? 'selected' : ''}>DPF/CGE/PB</option>
+                  <option value="DPF/PAT/PB" ${CUSTOS_FILTERS.unidade_pb === 'DPF/PAT/PB' ? 'selected' : ''}>DPF/PAT/PB</option>
+                </select>
                 <select id="custos-ano" onchange="aplicarFiltrosCustos()" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
                   <option value="2026" ${CUSTOS_FILTERS.ano === '2026' ? 'selected' : ''}>2026</option>
                   <option value="2025" ${CUSTOS_FILTERS.ano === '2025' ? 'selected' : ''}>2025</option>
                   <option value="" ${!CUSTOS_FILTERS.ano ? 'selected' : ''}>Todos</option>
                 </select>
-                <select id="custos-mes" onchange="aplicarFiltrosCustos()" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-                  <option value="">Mês</option>
-                  ${[...Array(12).keys()].map(i => {
-                    const m = String(i + 1).padStart(2, '0');
-                    return `<option value="${m}" ${CUSTOS_FILTERS.mes === m ? 'selected' : ''}>${m}</option>`;
-                  }).join('')}
-                </select>
               </div>
             </div>
 
             <div class="flex items-end">
-              <button onclick="limparFiltrosCustos()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded-lg text-xs transition">
-                ✕ Limpar
+              <button onclick="limparFiltrosCustos()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 px-3 rounded-lg text-xs transition">
+                ✕ Limpar Filtros
               </button>
             </div>
           </div>
+          <div class="hidden"><select id="custos-mes"><option value="">Mês</option></select></div>
         </div>
 
         <!-- KPI CARDS CONSOLIDADOS DE CUSTOS -->
@@ -1504,7 +1651,7 @@ async function renderCustos(container) {
               <thead class="text-slate-400 border-b border-slate-800 uppercase font-semibold text-[10px]">
                 <tr>
                   <th class="py-3 px-3">Missão</th>
-                  <th class="py-3 px-3">Servidor / Missionário</th>
+                  <th class="py-3 px-3">Servidor / Nome de Guerra</th>
                   <th class="py-3 px-3">Setor & Destino</th>
                   <th class="py-3 px-3">Transporte</th>
                   <th class="py-3 px-3">Período</th>
@@ -1522,12 +1669,12 @@ async function renderCustos(container) {
                   <tr><td colspan="12" class="text-center py-8 text-slate-500">Nenhum custo encontrado com os filtros selecionados.</td></tr>
                 ` : items.map(it => `
                   <tr class="hover:bg-slate-800/40 transition">
-                    <td class="py-3 px-3 font-mono font-bold text-pf-gold whitespace-nowrap">
-                      ${it.codigo_missao}
-                      <div class="text-[10px] font-normal text-slate-400 truncate max-w-[150px]">${it.titulo_missao}</div>
+                    <td class="py-3 px-3 font-semibold text-white max-w-[200px]">
+                      <div class="truncate">${it.titulo_missao}</div>
+                      <span class="badge-status badge-${it.modalidade} text-[9px] mt-0.5">${it.modalidade}</span>
                     </td>
                     <td class="py-3 px-3 font-semibold text-white whitespace-nowrap">
-                      ${it.servidor_nome}
+                      ${formatServidorDisplayHtml(it.servidor_nome_guerra, it.servidor_nome, it.servidor_matricula)}
                       <div class="text-[10px] text-slate-400 font-mono">Matrícula: ${it.servidor_matricula} [${it.cargo_sigla}]</div>
                     </td>
                     <td class="py-3 px-3 text-slate-200">
@@ -1550,10 +1697,10 @@ async function renderCustos(container) {
                     <td class="py-3 px-3 font-bold text-sky-300 font-mono">${formatMoney(it.valor_passagem_aerea)}</td>
                     <td class="py-3 px-3 font-black text-emerald-400 font-mono text-sm">${formatMoney(it.total_custo_individual)}</td>
                     <td class="py-3 px-3 whitespace-nowrap">
-                      <span class="badge-status ${getStatusBadgeClass(it.status_atual)} text-[10px]">${it.status_atual}</span>
+                      <span class="badge-status ${getStatusBadgeClass(it.status_atual)} text-[10px]">${formatStatusLabel(it.status_atual)}</span>
                     </td>
                     <td class="py-3 px-3 text-right whitespace-nowrap">
-                      <button onclick="openMissaoDetail('${it.codigo_missao}')" class="px-2.5 py-1 bg-slate-800 hover:bg-pf-700 text-white rounded text-[11px] font-semibold transition">
+                      <button onclick="openMissaoDetail('${it.missao_id}')" class="px-2.5 py-1 bg-slate-800 hover:bg-pf-700 text-white rounded text-[11px] font-semibold transition">
                         Ver Missão
                       </button>
                     </td>
@@ -1566,6 +1713,14 @@ async function renderCustos(container) {
       </div>
     `;
 
+    if (activeId === "custos-busca") {
+      const el = document.getElementById("custos-busca");
+      if (el) {
+        el.focus();
+        if (typeof cursorPos === "number") el.setSelectionRange(cursorPos, cursorPos);
+      }
+    }
+
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar custos: ${err.message}</div>`;
   }
@@ -1573,6 +1728,8 @@ async function renderCustos(container) {
 
 function aplicarFiltrosCustos() {
   CUSTOS_FILTERS.busca = document.getElementById("custos-busca")?.value || "";
+  CUSTOS_FILTERS.modalidade = document.getElementById("custos-modalidade")?.value ?? "";
+  CUSTOS_FILTERS.status = document.getElementById("custos-status")?.value || "";
   CUSTOS_FILTERS.setor = document.getElementById("custos-setor")?.value || "";
   CUSTOS_FILTERS.meio_transporte = document.getElementById("custos-transporte")?.value || "";
   CUSTOS_FILTERS.unidade_pb = document.getElementById("custos-unidade-pb")?.value || "";
@@ -1588,6 +1745,8 @@ function limparFiltrosCustos() {
     setor: "",
     meio_transporte: "",
     unidade_pb: "",
+    modalidade: "INDIVIDUAL",
+    status: "",
     cargo: "",
     busca: ""
   };
@@ -1606,23 +1765,23 @@ async function openMissaoDetail(codigoOuId) {
   try {
     const m = await apiFetch(`/api/missoes/${codigoOuId}`);
     const servidores = await apiFetch("/api/servidores?ativo=true");
+    ACTIVE_SERVERS_MODAL = servidores;
     const papeis = METADATA_CACHE.papeis.length ? METADATA_CACHE.papeis : await apiFetch("/api/missoes/meta/papeis");
 
     const isGerencial = CURRENT_USER && CURRENT_USER.role === "GERENCIAL";
-    const isCadastrador = CURRENT_USER && CURRENT_USER.role === "CADASTRADOR";
-    const isAdmin = CURRENT_USER && CURRENT_USER.role === "ADMIN";
+    const isIndividual = (m.modalidade || "INDIVIDUAL").toUpperCase() === "INDIVIDUAL";
+    const stKey = normStatusKey(m.status_atual);
 
     modalContent.innerHTML = `
       <div class="space-y-6">
         <!-- Modal Header -->
         <div class="flex items-start justify-between border-b border-slate-800 pb-4">
           <div>
-            <div class="flex items-center space-x-3">
-              <span class="font-mono text-xl font-bold text-pf-gold">${m.codigo_missao}</span>
+            <div class="flex items-center flex-wrap gap-2">
               <span class="badge-status badge-${m.modalidade || 'INDIVIDUAL'}">${m.modalidade || 'INDIVIDUAL'}</span>
-              <span class="badge-status ${getStatusBadgeClass(m.status_atual)}">${m.status_atual}</span>
+              <span class="badge-status ${getStatusBadgeClass(m.status_atual)}">${formatStatusLabel(m.status_atual)}</span>
             </div>
-            <h2 class="text-lg font-bold text-white mt-1">${m.titulo}</h2>
+            <h2 class="text-lg font-bold text-white mt-1.5">${m.titulo}</h2>
             <p class="text-xs text-slate-400 mt-0.5">
               ${m.tipo_missao} • Solicitante: <strong class="text-slate-200">${m.unidade_solicitante}</strong> • Destino: <strong class="text-slate-200">${m.unidade_destino || m.localidade_descricao}</strong>
               ${m.setor_destino ? ` • Setor: <strong class="text-pf-gold">${m.setor_destino}</strong>` : ''}
@@ -1642,20 +1801,28 @@ async function openMissaoDetail(codigoOuId) {
           </div>
         ` : ''}
 
-        <!-- Informações Administrativas & Responsáveis -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-xs">
+        <!-- Informações Administrativas & Policiais Designados -->
+        <div class="grid grid-cols-1 ${isIndividual ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-3 bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-xs">
           <div>
             <p class="text-slate-500 uppercase font-semibold text-[10px]">Período Oficial</p>
             <p class="font-bold text-white mt-0.5">${formatDateBR(m.data_inicio)} a ${formatDateBR(m.data_termino)} (${m.total_dias} dias)</p>
           </div>
+          ${!isIndividual ? `
+            <div>
+              <p class="text-slate-500 uppercase font-semibold text-[10px]">Chefe da Missão / Responsável</p>
+              <p class="font-bold text-slate-200 mt-0.5">
+                ${(m.responsavel_nome || m.responsavel_nome_guerra)
+                  ? `${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)} <span class="text-[10px] text-slate-400">(${m.responsavel_matricula || ''})</span>`
+                  : 'Não definido'}
+              </p>
+            </div>
+          ` : ''}
           <div>
-            <p class="text-slate-500 uppercase font-semibold text-[10px]">Chefe / Responsável</p>
-            <p class="font-bold text-slate-200 mt-0.5">${m.responsavel_nome ? `${m.responsavel_nome} (${m.responsavel_matricula})` : 'Não definido'}</p>
-          </div>
-          <div>
-            <p class="text-slate-500 uppercase font-semibold text-[10px]">Missionário Designado</p>
-            <p class="font-bold ${m.modalidade === 'INDIVIDUAL' ? 'text-fuchsia-400' : 'text-slate-200'} mt-0.5">
-              ${m.missionario_nome ? `${m.missionario_nome} (${m.missionario_matricula})` : (m.modalidade === 'INDIVIDUAL' ? 'Pendente' : 'Missão em Equipe')}
+            <p class="text-slate-500 uppercase font-semibold text-[10px]">${isIndividual ? 'Policial Missionário' : 'Missionário Principal'}</p>
+            <p class="font-bold ${isIndividual ? 'text-fuchsia-400' : 'text-slate-200'} mt-0.5">
+              ${(m.missionario_nome || m.missionario_nome_guerra)
+                ? `${formatServidorDisplayHtml(m.missionario_nome_guerra, m.missionario_nome, m.missionario_matricula)} <span class="text-[10px] text-slate-400">(${m.missionario_matricula || ''})</span>`
+                : (isIndividual ? 'Pendente' : 'Missão Coletiva (Equipe)')}
             </p>
           </div>
           <div>
@@ -1663,6 +1830,13 @@ async function openMissaoDetail(codigoOuId) {
             <p class="font-mono text-slate-200 mt-0.5">${m.numero_om || 'Não emitida'} / ${m.numero_pcdp || 'Pendente'}</p>
           </div>
         </div>
+
+        ${m.justificativa ? `
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-xs">
+            <span class="text-[10px] uppercase font-semibold text-slate-500 block mb-0.5">Justificativa / Observações</span>
+            <p class="text-slate-300">${m.justificativa}</p>
+          </div>
+        ` : ''}
 
         <!-- CAMPO EDITÁVEL DO VALOR DA DIÁRIA DA MISSÃO -->
         <div class="bg-gradient-to-r from-pf-900/60 to-slate-950 border border-pf-gold/50 rounded-2xl p-5 shadow-lg">
@@ -1693,47 +1867,36 @@ async function openMissaoDetail(codigoOuId) {
           </div>
         </div>
 
-        <!-- Transições de Ciclo de Vida (Com suporte aos status oficiais) -->
+        <!-- Transições de Ciclo de Vida (Status Oficiais Unificados) -->
         <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
           <div class="flex items-center space-x-2">
-            <span class="text-xs text-slate-400 font-semibold uppercase">Transição de Ciclo de Vida:</span>
-            <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${m.status_atual}</span>
+            <span class="text-xs text-slate-400 font-semibold uppercase">Status Atual:</span>
+            <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${formatStatusLabel(m.status_atual)}</span>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             ${isGerencial ? `
               <span class="text-xs text-slate-500 italic">Transição bloqueada para perfil gerencial</span>
             ` : `
-              <!-- Seletor Rápido de Todos os Status Oficiais -->
+              <!-- Seletor Único com os 11 Status Oficiais -->
               <div class="flex items-center space-x-1">
                 <select id="sel-mudar-status-oficial" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
-                  <option value="">Alterar para Status Oficial...</option>
-                  <option value="Indicado">Indicado</option>
-                  <option value="Pendente de Alocação">Pendente de Alocação</option>
-                  <option value="SAT pendente">SAT pendente</option>
-                  <option value="SAT Atendida">SAT Atendida</option>
-                  <option value="SAT Recusada">SAT Recusada</option>
-                  <option value="SAT Reiterada">SAT Reiterada</option>
-                  <option value="OM EMITIDA">OM EMITIDA</option>
-                  <option value="PCDP CADASTRADA">PCDP CADASTRADA</option>
-                  <option value="PCDP ENCAMINHADA">PCDP ENCAMINHADA</option>
-                  <option value="PCDP PRESTAR CONTAS">PCDP PRESTAR CONTAS</option>
-                  <option value="Concluído">Concluído</option>
+                  ${renderOfficialStatusOptions(m.status_atual, "")}
                 </select>
                 <button onclick="mudarStatusMissaoOficial('${m.id}')" class="px-2.5 py-1 bg-pf-700 hover:bg-pf-600 text-white rounded-lg text-xs font-semibold transition">
-                  Alterar
+                  Alterar Status
                 </button>
               </div>
 
               <!-- Botões rápidos de fluxo -->
-              ${m.status_atual === 'RASCUNHO' || m.status_atual === 'Indicado' ? `<button onclick="mudarStatusMissao('${m.id}', 'Pendente de Alocação')" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold">Alocar</button>` : ''}
-              ${m.status_atual === 'Pendente de Alocação' ? `<button onclick="mudarStatusMissao('${m.id}', 'SAT pendente')" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold">Solicitar SAT</button>` : ''}
-              ${m.status_atual === 'SAT pendente' ? `<button onclick="mudarStatusMissao('${m.id}', 'SAT Atendida')" class="px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold">Atender SAT</button>` : ''}
-              ${m.status_atual === 'SAT Atendida' || m.status_atual === 'APROVADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'OM EMITIDA')" class="px-3 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold">Emitir OM</button>` : ''}
-              ${m.status_atual === 'OM EMITIDA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP CADASTRADA')" class="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded-lg text-xs font-semibold">Cadastrar PCDP</button>` : ''}
-              ${m.status_atual === 'PCDP CADASTRADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP ENCAMINHADA')" class="px-3 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold">Encaminhar PCDP</button>` : ''}
-              ${m.status_atual === 'PCDP ENCAMINHADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP PRESTAR CONTAS')" class="px-3 py-1 bg-orange-700 hover:bg-orange-600 text-white rounded-lg text-xs font-semibold">Prestar Contas</button>` : ''}
-              ${m.status_atual === 'PCDP PRESTAR CONTAS' ? `<button onclick="mudarStatusMissao('${m.id}', 'Concluído')" class="px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded-lg text-xs font-semibold">Concluir Missão</button>` : ''}
-              ${m.status_atual !== 'CANCELADA' && m.status_atual !== 'Concluído' ? `<button onclick="mudarStatusMissao('${m.id}', 'CANCELADA')" class="px-2 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 rounded-lg text-xs font-semibold">Cancelar</button>` : ''}
+              ${stKey === 'RASCUNHO' || stKey === 'INDICADO' ? `<button onclick="mudarStatusMissao('${m.id}', 'Pendente de Alocação')" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold">Alocar</button>` : ''}
+              ${stKey === 'PENDENTE DE ALOCACAO' ? `<button onclick="mudarStatusMissao('${m.id}', 'SAT pendente')" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold">Solicitar SAT</button>` : ''}
+              ${stKey === 'SAT PENDENTE' || stKey === 'SAT REITERADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'SAT Atendida')" class="px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold">Atender SAT</button>` : ''}
+              ${stKey === 'SAT ATENDIDA' || stKey === 'APROVADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'OM EMITIDA')" class="px-3 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold">Emitir OM</button>` : ''}
+              ${stKey === 'OM EMITIDA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP CADASTRADA')" class="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded-lg text-xs font-semibold">Cadastrar PCDP</button>` : ''}
+              ${stKey === 'PCDP CADASTRADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP ENCAMINHADA')" class="px-3 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold">Encaminhar PCDP</button>` : ''}
+              ${stKey === 'PCDP ENCAMINHADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP PRESTAR CONTAS')" class="px-3 py-1 bg-orange-700 hover:bg-orange-600 text-white rounded-lg text-xs font-semibold">Prestar Contas</button>` : ''}
+              ${stKey === 'PCDP PRESTAR CONTAS' ? `<button onclick="mudarStatusMissao('${m.id}', 'Concluído')" class="px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded-lg text-xs font-semibold">Concluir Missão</button>` : ''}
+              ${stKey !== 'CANCELADA' && stKey !== 'CONCLUIDO' ? `<button onclick="mudarStatusMissao('${m.id}', 'CANCELADA')" class="px-2 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 rounded-lg text-xs font-semibold">Cancelar</button>` : ''}
             `}
           </div>
         </div>
@@ -1743,15 +1906,15 @@ async function openMissaoDetail(codigoOuId) {
           <div class="flex items-center justify-between">
             <div>
               <h3 class="text-sm font-bold text-white uppercase tracking-wider">
-                ${m.modalidade === 'INDIVIDUAL' ? 'Missionário Único Designado' : `Servidores Designados (${m.participantes.length})`}
+                ${isIndividual ? 'Missionário Único Designado' : `Servidores Designados (${m.participantes.length})`}
               </h3>
               <p class="text-xs text-slate-400">
-                ${m.modalidade === 'INDIVIDUAL' ? 
+                ${isIndividual ? 
                   'Missão individual vinculada exclusivamente ao policial missionário designado com cálculo automático de diárias.' : 
                   'Relação de policiais, meios de transporte, localizador e cálculo de diárias.'}
               </p>
             </div>
-            ${(!isGerencial && m.modalidade !== 'INDIVIDUAL') ? `
+            ${(!isGerencial && !isIndividual) ? `
               <button onclick="toggleFormNovoParticipante()" class="bg-pf-700 hover:bg-pf-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs uppercase tracking-wider transition flex items-center space-x-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
                 <span>Adicionar Servidor</span>
@@ -1764,12 +1927,17 @@ async function openMissaoDetail(codigoOuId) {
             <h4 class="text-xs font-bold text-pf-gold uppercase">Designar Novo Servidor para esta Missão</h4>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div>
-                <label class="block text-slate-400 mb-1">Servidor Policial</label>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-slate-400">Servidor Policial</label>
+                  <span id="count-busca-part" class="text-[10px] text-pf-gold font-semibold">${servidores.length} disponíveis</span>
+                </div>
+                <input type="text" id="filtro-busca-part" oninput="updateHotServerSelect('filtro-busca-part', 'part-matricula', 'count-busca-part', 'Selecione o servidor...')" placeholder="🔍 Buscar nome de guerra, nome, matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 mb-1 text-xs text-white">
                 <select id="part-matricula" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
                   ${servidores.map(s => `
-                    <option value="${s.matricula}">[${s.cargo_sigla}] ${s.nome_completo} (${s.unidade_sigla})</option>
+                    <option value="${s.matricula}">${formatServidorOptionText(s)}</option>
                   `).join('')}
                 </select>
+                <div id="hot-preview-part-matricula" class="hidden mt-1 space-y-1 max-h-28 overflow-y-auto bg-slate-900/90 border border-slate-700 rounded-lg p-1.5"></div>
               </div>
               <div>
                 <label class="block text-slate-400 mb-1">Papel na Missão</label>
@@ -1838,7 +2006,7 @@ async function openMissaoDetail(codigoOuId) {
                 ${m.participantes.map(p => `
                   <tr class="hover:bg-slate-800/40 transition">
                     <td class="py-3 px-3">
-                      <p class="font-bold text-white">[${p.servidor_cargo || ''}] ${p.servidor_nome || p.servidor_matricula}</p>
+                      <p class="font-bold text-white">[${p.servidor_cargo || ''}] ${formatServidorDisplayHtml(p.servidor_nome_guerra, p.servidor_nome, p.servidor_matricula)}</p>
                       <p class="text-[11px] text-slate-400">Matrícula: ${p.servidor_matricula} • Lotação: ${p.servidor_lotacao || '-'}</p>
                     </td>
                     <td class="py-3 px-3">
@@ -1906,6 +2074,14 @@ function toggleFormNovoParticipante() {
   if (el) el.classList.toggle("hidden");
 }
 
+async function refreshUnderlyingViewIfNeeded() {
+  const container = document.getElementById("view-container");
+  if (!container) return;
+  if (CURRENT_VIEW === "dashboard") await renderDashboard(container);
+  else if (CURRENT_VIEW === "missoes") await renderMissoes(container);
+  else if (CURRENT_VIEW === "custos") await renderCustos(container);
+}
+
 async function salvarNovoValorDiaria(missaoId) {
   const input = document.getElementById("input-diaria-missao");
   const novoValor = parseFloat(input.value);
@@ -1924,6 +2100,7 @@ async function salvarNovoValorDiaria(missaoId) {
     });
     alert(`Diária da missão atualizada para ${formatMoney(novoValor)}. Todos os participantes foram recalculados com sucesso!`);
     await openMissaoDetail(missaoId);
+    refreshUnderlyingViewIfNeeded();
   } catch (err) {
     alert(`Erro ao atualizar diária: ${err.message}`);
   }
@@ -1939,6 +2116,7 @@ async function mudarStatusMissao(missaoId, novoStatus) {
       body: JSON.stringify({ novo_status: novoStatus, justificativa: motivo })
     });
     await openMissaoDetail(missaoId);
+    refreshUnderlyingViewIfNeeded();
   } catch (err) {
     alert(`Erro ao alterar status: ${err.message}`);
   }
@@ -1981,6 +2159,7 @@ async function salvarNovoParticipante(missaoId) {
       })
     });
     await openMissaoDetail(missaoId);
+    refreshUnderlyingViewIfNeeded();
   } catch (err) {
     alert(`Falha ao designar servidor: ${err.message}`);
   }
@@ -1991,6 +2170,7 @@ async function removerParticipante(missaoId, partId) {
   try {
     await apiFetch(`/api/missoes/${missaoId}/participantes/${partId}`, { method: "DELETE" });
     await openMissaoDetail(missaoId);
+    refreshUnderlyingViewIfNeeded();
   } catch (err) {
     alert(`Erro ao remover: ${err.message}`);
   }
@@ -2006,9 +2186,9 @@ async function openModalNovaMissao() {
   const tipos = METADATA_CACHE.tipos.length ? METADATA_CACHE.tipos : await apiFetch("/api/missoes/meta/tipos");
   const setores = METADATA_CACHE.setores.length ? METADATA_CACHE.setores : await apiFetch("/api/missoes/meta/setores").catch(() => []);
   const servidores = await apiFetch("/api/servidores?ativo=true");
+  ACTIVE_SERVERS_MODAL = servidores;
+  window.SELECTED_EQUIPE_MATRICULAS = new Set();
   const diariaBase = SYSTEM_CONFIG.valor_diaria_padrao || "425.00";
-
-  const proxCod = `MIS-2026-00${Math.floor(Math.random() * 900 + 100)}`;
 
   modalContent.innerHTML = `
     <div class="space-y-4">
@@ -2040,13 +2220,15 @@ async function openModalNovaMissao() {
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
-            <label class="block text-slate-400 mb-1">Código da Missão</label>
-            <input type="text" id="nova-codigo" value="${proxCod}" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono font-bold text-pf-gold">
-          </div>
           <div class="md:col-span-2">
             <label class="block text-slate-400 mb-1">Título da Missão</label>
             <input type="text" id="nova-titulo" placeholder="Ex: Operação Fronteira Segura 2026 / Diligência Específica" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Status Inicial da Missão</label>
+            <select id="nova-status" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
+              ${renderOfficialStatusOptions("Indicado", "")}
+            </select>
           </div>
           <div>
             <label class="block text-slate-400 mb-1">Tipo de Missão</label>
@@ -2110,28 +2292,37 @@ async function openModalNovaMissao() {
             <input type="number" id="nova-diaria-padrao" step="0.50" value="${diariaBase}" required class="w-full bg-slate-900 border-2 border-pf-gold rounded-lg p-2 text-amber-300 font-extrabold">
           </div>
 
-          <!-- CHEFE / RESPONSÁVEL -->
-          <div>
-            <label class="block text-slate-400 mb-1">Chefe da Missão / Autoridade Solicitante</label>
+          <!-- CHEFE / RESPONSÁVEL (VISÍVEL APENAS EM MISSÕES DE EQUIPE) -->
+          <div id="container-nova-responsavel" class="hidden md:col-span-3">
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-slate-300 font-semibold">Chefe da Missão / Autoridade Solicitante (Equipe)</label>
+              <span id="count-busca-responsavel" class="text-[10px] text-pf-gold font-semibold">${servidores.length} disponíveis</span>
+            </div>
+            <input type="text" id="filtro-busca-responsavel" oninput="filtrarOpcoesResponsavel()" placeholder="🔍 Pesquisar chefe por nome de guerra, nome, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 mb-1 text-xs text-white">
             <select id="nova-responsavel" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-              <option value="">Selecione...</option>
-              ${servidores.map(s => `<option value="${s.matricula}">[${s.cargo_sigla}] ${s.nome_completo} (${s.unidade_sigla})</option>`).join('')}
+              <option value="">Selecione o chefe da missão...</option>
+              ${servidores.map(s => `<option value="${s.matricula}">${formatServidorOptionText(s)}</option>`).join('')}
             </select>
+            <div id="hot-preview-nova-responsavel" class="hidden mt-1 space-y-1 max-h-32 overflow-y-auto bg-slate-900/95 border border-slate-700 rounded-lg p-1.5"></div>
           </div>
 
           <!-- CONTAINER MISSÃO INDIVIDUAL (PADRÃO) -->
-          <div id="container-nova-missionario" class="md:col-span-2">
+          <div id="container-nova-missionario" class="md:col-span-3">
             <div class="flex items-center justify-between mb-1">
-              <label class="block text-fuchsia-300 font-bold" id="label-nova-missionario">* Policial Missionário Designado (Individual)</label>
+              <div class="flex items-center space-x-2">
+                <label class="block text-fuchsia-300 font-bold" id="label-nova-missionario">* Policial Missionário Designado (Individual)</label>
+                <span id="count-busca-missionario" class="text-[10px] text-pf-gold font-semibold">(${servidores.length} disponíveis)</span>
+              </div>
               <button type="button" onclick="openSubModalNovoServidor('nova-missionario')" class="text-pf-gold hover:underline text-[11px] font-bold">
                 + Cadastrar Novo Servidor
               </button>
             </div>
-            <input type="text" id="filtro-busca-missionario" oninput="filtrarOpcoesMissionario()" placeholder="🔍 Pesquisar policial por nome, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 mb-1 text-xs text-white">
+            <input type="text" id="filtro-busca-missionario" oninput="filtrarOpcoesMissionario()" placeholder="🔍 Busca HOT: digite nome de guerra, nome completo, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 mb-1 text-xs text-white focus:border-pf-gold focus:outline-none">
             <select id="nova-missionario" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
               <option value="">Selecione o servidor executor...</option>
-              ${servidores.map(s => `<option value="${s.matricula}">[${s.cargo_sigla}] ${s.nome_completo} (${s.unidade_sigla}) - Matrícula ${s.matricula}</option>`).join('')}
+              ${servidores.map(s => `<option value="${s.matricula}">${formatServidorOptionText(s)}</option>`).join('')}
             </select>
+            <div id="hot-preview-nova-missionario" class="hidden mt-1 space-y-1 max-h-36 overflow-y-auto bg-slate-900/95 border border-slate-700 rounded-lg p-1.5"></div>
           </div>
 
           <!-- CONTAINER MISSÃO EM EQUIPE (MÚLTIPLOS SERVIDORES) -->
@@ -2139,20 +2330,15 @@ async function openModalNovaMissao() {
             <div class="flex items-center justify-between">
               <div>
                 <span class="font-bold text-blue-300 text-xs uppercase">Designar Servidores da Equipe (Múltiplos)</span>
-                <p class="text-[11px] text-slate-400">Marque todos os policiais que integrarão a equipe desta missão:</p>
+                <p class="text-[11px] text-slate-400">Marque todos os policiais que integrarão a equipe desta missão (<span id="count-busca-equipe" class="text-pf-gold font-semibold">${servidores.length} disponíveis</span>):</p>
               </div>
               <button type="button" onclick="openSubModalNovoServidor('equipe-servidores')" class="px-2.5 py-1 bg-pf-800 hover:bg-pf-700 text-pf-gold border border-pf-gold/50 rounded-lg text-xs font-bold transition">
                 + Cadastrar Novo Servidor
               </button>
             </div>
-            <input type="text" id="filtro-busca-equipe" oninput="filtrarOpcoesEquipe()" placeholder="🔍 Filtrar servidores disponíveis..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+            <input type="text" id="filtro-busca-equipe" oninput="filtrarOpcoesEquipe()" placeholder="🔍 Busca HOT por nome de guerra, nome, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-pf-gold focus:outline-none">
             <div id="lista-equipe-servidores" class="max-h-48 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-slate-900 rounded-lg border border-slate-800">
-              ${servidores.map(s => `
-                <label class="equipe-srv-item flex items-center space-x-2 p-1.5 rounded hover:bg-slate-800 cursor-pointer" data-search="${s.nome_completo.toLowerCase()} ${s.matricula} ${s.cargo_sigla.toLowerCase()}">
-                  <input type="checkbox" name="chk-equipe-srv" value="${s.matricula}" class="rounded bg-slate-950 border-slate-700 text-pf-gold focus:ring-0">
-                  <span class="text-xs text-slate-200 truncate">[${s.cargo_sigla}] ${s.nome_completo} <span class="text-[10px] text-slate-400">(${s.matricula})</span></span>
-                </label>
-              `).join('')}
+              ${renderEquipeChecklistHtml(servidores)}
             </div>
           </div>
 
@@ -2170,8 +2356,8 @@ async function openModalNovaMissao() {
           </div>
 
           <div class="md:col-span-3">
-            <label class="block text-slate-400 mb-1">Justificativa da Missão</label>
-            <textarea id="nova-justificativa" rows="2" placeholder="Fundamentação de interesse público e objetivos operacionais..." required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"></textarea>
+            <label class="block text-slate-400 mb-1">Justificativa da Missão <span class="text-slate-500 text-[10px] font-normal">(opcional)</span></label>
+            <textarea id="nova-justificativa" rows="2" placeholder="Fundamentação ou observações operacionais (opcional)..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"></textarea>
           </div>
         </div>
 
@@ -2183,19 +2369,21 @@ async function openModalNovaMissao() {
     </div>
   `;
 
+  // Garantir visibilidade inicial consistente (INDIVIDUAL = oculta chefe e equipe)
+  toggleModalidadeFields();
+
   document.getElementById("form-criar-missao").addEventListener("submit", async (e) => {
     e.preventDefault();
     const modalidade = document.querySelector('input[name="nova-modalidade"]:checked').value;
-    const missionarioMatricula = document.getElementById("nova-missionario").value || null;
+    const missionarioMatricula = document.getElementById("nova-missionario")?.value || null;
+    const responsavelMatricula = modalidade === "EQUIPE" ? (document.getElementById("nova-responsavel")?.value || null) : null;
     const meioTransporte = document.getElementById("nova-transporte").value;
     const custoPassagens = meioTransporte === "AEREO" ? parseFloat(document.getElementById("nova-custo-passagens").value || 0) : 0;
     const setorDestino = document.getElementById("nova-setor").value || null;
 
     let equipeMatriculas = [];
     if (modalidade === "EQUIPE") {
-      document.querySelectorAll('input[name="chk-equipe-srv"]:checked').forEach(chk => {
-        equipeMatriculas.push(chk.value);
-      });
+      equipeMatriculas = Array.from(window.SELECTED_EQUIPE_MATRICULAS || []);
     }
 
     if (modalidade === "INDIVIDUAL" && !missionarioMatricula) {
@@ -2204,7 +2392,6 @@ async function openModalNovaMissao() {
     }
 
     const payload = {
-      codigo_missao: document.getElementById("nova-codigo").value.trim(),
       titulo: document.getElementById("nova-titulo").value.trim(),
       tipo_missao: document.getElementById("nova-tipo").value,
       modalidade: modalidade,
@@ -2217,7 +2404,7 @@ async function openModalNovaMissao() {
       data_inicio: document.getElementById("nova-dt-inicio").value,
       data_termino: document.getElementById("nova-dt-termino").value,
       valor_diaria_padrao: parseFloat(document.getElementById("nova-diaria-padrao").value || 425),
-      responsavel_matricula: document.getElementById("nova-responsavel").value || null,
+      responsavel_matricula: responsavelMatricula,
       missionario_matricula: missionarioMatricula,
       servidores_matriculas: equipeMatriculas,
       servidores_equipe_matriculas: equipeMatriculas,
@@ -2225,7 +2412,7 @@ async function openModalNovaMissao() {
       processo_sei: document.getElementById("nova-sei").value.trim() || null,
       numero_sat: document.getElementById("nova-sat").value.trim() || null,
       justificativa: document.getElementById("nova-justificativa").value.trim(),
-      status_atual: "Indicado"
+      status_atual: document.getElementById("nova-status")?.value || "Indicado"
     };
 
     try {
@@ -2234,8 +2421,8 @@ async function openModalNovaMissao() {
         body: JSON.stringify(payload)
       });
       closeModal();
-      navigate("missoes");
-      openMissaoDetail(criada.codigo_missao);
+      await navigate("missoes");
+      openMissaoDetail(criada.id);
     } catch (err) {
       alert(`Erro ao criar missão: ${err.message}`);
     }
@@ -2243,18 +2430,21 @@ async function openModalNovaMissao() {
 }
 
 function toggleModalidadeFields() {
-  const modalidade = document.querySelector('input[name="nova-modalidade"]:checked').value;
+  const modalidade = document.querySelector('input[name="nova-modalidade"]:checked')?.value || "INDIVIDUAL";
   const hint = document.getElementById("modalidade-hint");
   const containerMissionario = document.getElementById("container-nova-missionario");
+  const containerResponsavel = document.getElementById("container-nova-responsavel");
   const containerEquipe = document.getElementById("container-equipe-multi");
 
   if (modalidade === "INDIVIDUAL") {
-    hint.innerHTML = `<strong class="text-fuchsia-400">Missão Individual (Padrão):</strong> O policial selecionado como missionário será automaticamente cadastrado como único participante com cálculo de diárias e passagens.`;
+    if (hint) hint.innerHTML = `<strong class="text-fuchsia-400">Missão Individual (Padrão):</strong> O policial selecionado como missionário será automaticamente cadastrado como único participante com cálculo de diárias e passagens.`;
     if (containerMissionario) containerMissionario.classList.remove("hidden");
+    if (containerResponsavel) containerResponsavel.classList.add("hidden");
     if (containerEquipe) containerEquipe.classList.add("hidden");
   } else {
-    hint.innerHTML = `<strong class="text-blue-400">Missão em Equipe:</strong> Selecione abaixo os servidores que integrarão a equipe desta missão coletiva.`;
+    if (hint) hint.innerHTML = `<strong class="text-blue-400">Missão em Equipe:</strong> Informe o chefe/responsável e selecione abaixo os servidores que integrarão a equipe desta missão coletiva.`;
     if (containerMissionario) containerMissionario.classList.add("hidden");
+    if (containerResponsavel) containerResponsavel.classList.remove("hidden");
     if (containerEquipe) containerEquipe.classList.remove("hidden");
   }
 }
@@ -2290,23 +2480,117 @@ function autoAjustarDiariaPorDestino() {
   }
 }
 
-function filtrarOpcoesMissionario() {
-  const term = document.getElementById("filtro-busca-missionario")?.value.toLowerCase() || "";
-  const select = document.getElementById("nova-missionario");
+function updateHotServerSelect(inputId, selectId, countId, emptyPlaceholder) {
+  const term = document.getElementById(inputId)?.value || "";
+  const select = document.getElementById(selectId);
+  const countEl = document.getElementById(countId);
+  const previewEl = document.getElementById(`hot-preview-${selectId}`);
   if (!select) return;
-  for (let opt of select.options) {
-    if (!opt.value) continue;
-    const match = opt.text.toLowerCase().includes(term);
-    opt.style.display = match ? "" : "none";
+
+  const prevVal = select.value;
+  const lista = ACTIVE_SERVERS_MODAL || [];
+  const filtered = term.trim() ? lista.filter(s => servidorMatchesTerm(s, term)) : lista;
+
+  if (countEl) {
+    countEl.textContent = term.trim()
+      ? `(${filtered.length} de ${lista.length} encontrado${filtered.length === 1 ? '' : 's'})`
+      : `(${lista.length} disponíveis)`;
+  }
+
+  let html = "";
+  if (filtered.length === 0) {
+    html = `<option value="">Nenhum policial encontrado para "${term}"</option>`;
+  } else {
+    if (!(term.trim() && filtered.length === 1)) {
+      html += `<option value="">${term.trim() ? `✓ ${filtered.length} encontrado(s) — selecione:` : emptyPlaceholder}</option>`;
+    }
+    html += filtered.map(s => `<option value="${s.matricula}">${formatServidorOptionText(s)}</option>`).join("");
+  }
+  select.innerHTML = html;
+
+  if (term.trim() && filtered.length > 0) {
+    if (filtered.length === 1) {
+      select.value = filtered[0].matricula;
+    } else if (filtered.some(s => s.matricula === prevVal)) {
+      select.value = prevVal;
+    } else {
+      select.value = filtered[0].matricula;
+    }
+  } else if (prevVal && filtered.some(s => s.matricula === prevVal)) {
+    select.value = prevVal;
+  }
+
+  if (previewEl) {
+    if (term.trim() && filtered.length > 0) {
+      previewEl.innerHTML = filtered.slice(0, 8).map(s => `
+        <button type="button" onclick="selecionarServidorHot('${selectId}', '${s.matricula}', '${inputId}', '${countId}', '${emptyPlaceholder}')"
+                class="w-full text-left px-2.5 py-1.5 rounded hover:bg-slate-800 transition flex items-center justify-between text-xs ${select.value === s.matricula ? 'bg-slate-800 border border-pf-gold/50' : ''}">
+          <span>[${s.cargo_sigla}] ${formatServidorDisplayHtml(s.nome_guerra, s.nome_completo, s.matricula)} <span class="text-[10px] text-slate-400">(${s.unidade_sigla})</span></span>
+          <span class="text-[10px] text-pf-gold font-mono">Mat. ${s.matricula}</span>
+        </button>
+      `).join("");
+      previewEl.classList.remove("hidden");
+    } else {
+      previewEl.innerHTML = "";
+      previewEl.classList.add("hidden");
+    }
   }
 }
 
+function selecionarServidorHot(selectId, matricula, inputId, countId, emptyPlaceholder) {
+  const select = document.getElementById(selectId);
+  if (select) select.value = matricula;
+  const previewEl = document.getElementById(`hot-preview-${selectId}`);
+  if (previewEl) previewEl.classList.add("hidden");
+  const inp = document.getElementById(inputId);
+  if (inp) {
+    const s = (ACTIVE_SERVERS_MODAL || []).find(x => x.matricula === matricula);
+    if (s) inp.value = s.nome_guerra || s.nome_completo;
+  }
+}
+
+function filtrarOpcoesMissionario() {
+  updateHotServerSelect("filtro-busca-missionario", "nova-missionario", "count-busca-missionario", "Selecione o servidor executor...");
+}
+
+function filtrarOpcoesResponsavel() {
+  updateHotServerSelect("filtro-busca-responsavel", "nova-responsavel", "count-busca-responsavel", "Selecione o chefe da missão...");
+}
+
+function renderEquipeChecklistHtml(servidoresList) {
+  if (!servidoresList || servidoresList.length === 0) {
+    return `<p class="text-xs text-slate-500 p-2 col-span-2 text-center">Nenhum servidor encontrado.</p>`;
+  }
+  const selectedSet = window.SELECTED_EQUIPE_MATRICULAS || new Set();
+  return servidoresList.map(s => {
+    const checked = selectedSet.has(s.matricula) ? "checked" : "";
+    return `
+      <label class="equipe-srv-item flex items-center space-x-2 p-1.5 rounded hover:bg-slate-800 cursor-pointer">
+        <input type="checkbox" name="chk-equipe-srv" value="${s.matricula}" ${checked} onchange="toggleEquipeCheckbox(this)" class="rounded bg-slate-950 border-slate-700 text-pf-gold focus:ring-0">
+        <span class="text-xs text-slate-200 truncate">[${s.cargo_sigla}] ${formatServidorDisplayHtml(s.nome_guerra, s.nome_completo, s.matricula)} <span class="text-[10px] text-slate-400">(${s.matricula})</span></span>
+      </label>
+    `;
+  }).join("");
+}
+
+function toggleEquipeCheckbox(chk) {
+  if (!window.SELECTED_EQUIPE_MATRICULAS) window.SELECTED_EQUIPE_MATRICULAS = new Set();
+  if (chk.checked) window.SELECTED_EQUIPE_MATRICULAS.add(chk.value);
+  else window.SELECTED_EQUIPE_MATRICULAS.delete(chk.value);
+}
+
 function filtrarOpcoesEquipe() {
-  const term = document.getElementById("filtro-busca-equipe")?.value.toLowerCase() || "";
-  document.querySelectorAll(".equipe-srv-item").forEach(item => {
-    const txt = item.getAttribute("data-search") || "";
-    item.style.display = txt.includes(term) ? "flex" : "none";
-  });
+  const term = document.getElementById("filtro-busca-equipe")?.value || "";
+  const lista = ACTIVE_SERVERS_MODAL || [];
+  const filtered = term.trim() ? lista.filter(s => servidorMatchesTerm(s, term)) : lista;
+  const container = document.getElementById("lista-equipe-servidores");
+  const countEl = document.getElementById("count-busca-equipe");
+  if (container) container.innerHTML = renderEquipeChecklistHtml(filtered);
+  if (countEl) {
+    countEl.textContent = term.trim()
+      ? `${filtered.length} de ${lista.length} encontrados`
+      : `${lista.length} disponíveis`;
+  }
 }
 
 // Sub-modal para cadastro rápido de novo servidor sem perder o contexto da missão
@@ -2333,9 +2617,9 @@ function openSubModalNovoServidor(targetSelectOrListId) {
               ${METADATA_CACHE.cargos.map(c => `<option value="${c.sigla}">${c.sigla} - ${c.descricao}</option>`).join('')}
             </select>
           </div>
-          <div class="col-span-2">
-            <label class="block text-slate-400 mb-1">Nome Completo</label>
-            <input type="text" id="sub-srv-nome" required placeholder="NOME DO POLICIAL FEDERAL" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-semibold uppercase">
+          <div>
+            <label class="block text-slate-400 mb-1">Nome de Guerra</label>
+            <input type="text" id="sub-srv-guerra" required placeholder="EX: SILVA" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-amber-300 font-bold uppercase">
           </div>
           <div>
             <label class="block text-slate-400 mb-1">Unidade de Lotação</label>
@@ -2343,7 +2627,11 @@ function openSubModalNovoServidor(targetSelectOrListId) {
               ${METADATA_CACHE.unidades.map(u => `<option value="${u.sigla}">${u.sigla}</option>`).join('')}
             </select>
           </div>
-          <div>
+          <div class="col-span-2">
+            <label class="block text-slate-400 mb-1">Nome Completo</label>
+            <input type="text" id="sub-srv-nome" required placeholder="NOME DO POLICIAL FEDERAL" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-semibold uppercase">
+          </div>
+          <div class="col-span-2">
             <label class="block text-slate-400 mb-1">E-mail Institucional</label>
             <input type="email" id="sub-srv-email" required placeholder="policial.xyz@pf.gov.br" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white">
           </div>
@@ -2361,6 +2649,7 @@ function openSubModalNovoServidor(targetSelectOrListId) {
   document.getElementById("form-sub-servidor").addEventListener("submit", async (e) => {
     e.preventDefault();
     const matricula = document.getElementById("sub-srv-matricula").value.trim();
+    const nomeGuerra = document.getElementById("sub-srv-guerra").value.trim().toUpperCase();
     const nome = document.getElementById("sub-srv-nome").value.trim().toUpperCase();
     const cargo = document.getElementById("sub-srv-cargo").value;
     const unidade = document.getElementById("sub-srv-unidade").value;
@@ -2371,6 +2660,7 @@ function openSubModalNovoServidor(targetSelectOrListId) {
         method: "POST",
         body: JSON.stringify({
           matricula,
+          nome_guerra: nomeGuerra,
           nome_completo: nome,
           cargo_sigla: cargo,
           unidade_sigla: unidade,
@@ -2380,31 +2670,21 @@ function openSubModalNovoServidor(targetSelectOrListId) {
         })
       });
 
-      // Atualizar o select do missionário individual
+      if (!Array.isArray(ACTIVE_SERVERS_MODAL)) ACTIVE_SERVERS_MODAL = [];
+      ACTIVE_SERVERS_MODAL.unshift(criado);
+
       const selectMissionario = document.getElementById("nova-missionario");
       if (selectMissionario) {
-        const opt = document.createElement("option");
-        opt.value = criado.matricula;
-        opt.text = `[${criado.cargo_sigla}] ${criado.nome_completo} (${criado.unidade_sigla}) - Matrícula ${criado.matricula}`;
-        opt.selected = true;
-        selectMissionario.appendChild(opt);
+        updateHotServerSelect("filtro-busca-missionario", "nova-missionario", "count-busca-missionario", "Selecione o servidor executor...");
+        selectMissionario.value = criado.matricula;
       }
 
-      // Se for lista de equipe, adicionar checkbox marcado
-      const listaEquipe = document.getElementById("lista-equipe-servidores");
-      if (listaEquipe) {
-        const itemLabel = document.createElement("label");
-        itemLabel.className = "equipe-srv-item flex items-center space-x-2 p-1.5 rounded hover:bg-slate-800 cursor-pointer bg-blue-950/40 border border-blue-700";
-        itemLabel.setAttribute("data-search", `${criado.nome_completo.toLowerCase()} ${criado.matricula} ${criado.cargo_sigla.toLowerCase()}`);
-        itemLabel.innerHTML = `
-          <input type="checkbox" name="chk-equipe-srv" value="${criado.matricula}" checked class="rounded bg-slate-950 border-slate-700 text-pf-gold focus:ring-0">
-          <span class="text-xs text-slate-200 truncate">[${criado.cargo_sigla}] ${criado.nome_completo} <span class="text-[10px] text-slate-400">(${criado.matricula})</span></span>
-        `;
-        listaEquipe.prepend(itemLabel);
-      }
+      if (!window.SELECTED_EQUIPE_MATRICULAS) window.SELECTED_EQUIPE_MATRICULAS = new Set();
+      window.SELECTED_EQUIPE_MATRICULAS.add(criado.matricula);
+      filtrarOpcoesEquipe();
 
       subModal.remove();
-      alert(`Servidor '${criado.nome_completo}' cadastrado e selecionado com sucesso!`);
+      alert(`Servidor '${criado.nome_guerra || criado.nome_completo}' cadastrado e selecionado com sucesso!`);
     } catch (err) {
       alert(`Erro ao cadastrar servidor: ${err.message}`);
     }
@@ -2484,6 +2764,11 @@ async function renderServidores(container) {
               </select>
             </div>
           </div>
+          <div class="flex justify-end pt-1">
+            <button id="btn-limpar-filtros-srv" type="button" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition font-semibold">
+              ✕ Limpar Filtros
+            </button>
+          </div>
         </div>
 
         <!-- Table -->
@@ -2518,6 +2803,15 @@ async function renderServidores(container) {
     document.getElementById("filtro-srv-status").addEventListener("change", onSrvFilter);
     document.getElementById("filtro-srv-tpe").addEventListener("change", onSrvFilter);
     document.getElementById("filtro-srv-miss").addEventListener("change", onSrvFilter);
+    document.getElementById("btn-limpar-filtros-srv")?.addEventListener("click", () => {
+      document.getElementById("filtro-srv-busca").value = "";
+      document.getElementById("filtro-srv-cargo").value = "";
+      document.getElementById("filtro-srv-unidade").value = "";
+      document.getElementById("filtro-srv-status").value = "";
+      document.getElementById("filtro-srv-tpe").value = "";
+      document.getElementById("filtro-srv-miss").value = "";
+      applyServidoresFilter(servidores);
+    });
 
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao listar servidores: ${err.message}</div>`;
@@ -2532,8 +2826,7 @@ function renderServidoresRows(servidores) {
     <tr class="hover:bg-slate-800/40 transition">
       <td class="py-3 px-3 font-mono font-bold text-pf-gold">${s.matricula}</td>
       <td class="py-3 px-3">
-        <p class="font-bold text-white">${s.nome_completo}</p>
-        ${s.nome_guerra ? `<p class="text-[11px] text-slate-400 font-mono">(${s.nome_guerra})</p>` : ''}
+        ${s.nome_guerra ? `<p class="font-bold text-pf-gold uppercase tracking-wide">${s.nome_guerra}</p><p class="text-[11px] text-slate-300">${s.nome_completo}</p>` : `<p class="font-bold text-white">${s.nome_completo}</p>`}
       </td>
       <td class="py-3 px-3">
         <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-blue-300 border border-slate-700">
@@ -2565,7 +2858,7 @@ function renderServidoresRows(servidores) {
 }
 
 function applyServidoresFilter(allServidores) {
-  const busca = document.getElementById("filtro-srv-busca").value.toLowerCase();
+  const busca = normalizeTextKey(document.getElementById("filtro-srv-busca").value);
   const cargo = document.getElementById("filtro-srv-cargo").value;
   const unidade = document.getElementById("filtro-srv-unidade").value;
   const status = document.getElementById("filtro-srv-status").value;
@@ -2574,10 +2867,10 @@ function applyServidoresFilter(allServidores) {
 
   const filtered = allServidores.filter(s => {
     const matchBusca = !busca ||
-      s.matricula.toLowerCase().includes(busca) ||
-      s.nome_completo.toLowerCase().includes(busca) ||
-      (s.nome_guerra && s.nome_guerra.toLowerCase().includes(busca)) ||
-      s.email_institucional.toLowerCase().includes(busca);
+      normalizeTextKey(s.matricula).includes(busca) ||
+      normalizeTextKey(s.nome_completo).includes(busca) ||
+      normalizeTextKey(s.nome_guerra || "").includes(busca) ||
+      normalizeTextKey(s.email_institucional).includes(busca);
     const matchCargo = !cargo || s.cargo_sigla === cargo;
     const matchUnidade = !unidade || s.unidade_sigla === unidade;
     const matchStatus = !status || String(s.ativo) === status;
@@ -2870,6 +3163,11 @@ async function renderAuditoria(container) {
               <input type="date" id="filtro-audit-data" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white" title="Filtrar por data específica">
             </div>
           </div>
+          <div class="flex justify-end pt-1">
+            <button id="btn-limpar-filtros-audit" type="button" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition font-semibold">
+              ✕ Limpar Filtros
+            </button>
+          </div>
         </div>
 
         <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
@@ -2900,6 +3198,12 @@ async function renderAuditoria(container) {
     document.getElementById("filtro-audit-busca").addEventListener("input", onAuditFilter);
     document.getElementById("filtro-audit-op").addEventListener("change", onAuditFilter);
     document.getElementById("filtro-audit-data").addEventListener("change", onAuditFilter);
+    document.getElementById("btn-limpar-filtros-audit")?.addEventListener("click", () => {
+      document.getElementById("filtro-audit-busca").value = "";
+      document.getElementById("filtro-audit-op").value = "";
+      document.getElementById("filtro-audit-data").value = "";
+      applyAuditoriaFilter(logs);
+    });
 
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar auditoria: ${err.message}</div>`;
@@ -3079,6 +3383,11 @@ async function renderUsuarios(container) {
               </select>
             </div>
           </div>
+          <div class="flex justify-end pt-1">
+            <button id="btn-limpar-filtros-usr" type="button" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition font-semibold">
+              ✕ Limpar Filtros
+            </button>
+          </div>
         </div>
 
         <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
@@ -3108,6 +3417,12 @@ async function renderUsuarios(container) {
     document.getElementById("filtro-usr-busca").addEventListener("input", onUsrFilter);
     document.getElementById("filtro-usr-role").addEventListener("change", onUsrFilter);
     document.getElementById("filtro-usr-status").addEventListener("change", onUsrFilter);
+    document.getElementById("btn-limpar-filtros-usr")?.addEventListener("click", () => {
+      document.getElementById("filtro-usr-busca").value = "";
+      document.getElementById("filtro-usr-role").value = "";
+      document.getElementById("filtro-usr-status").value = "";
+      applyUsuariosFilter(usuarios);
+    });
 
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar usuários: ${err.message}</div>`;
@@ -3419,12 +3734,15 @@ async function renderUnidades(container) {
               <option value="RN">RN (Rio Grande do Norte)</option>
             </select>
           </div>
-          <div>
+          <div class="flex items-center gap-2">
             <select id="filtro-unid-status" class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-300">
               <option value="">Todos os Status</option>
               <option value="true" selected>Apenas Ativas</option>
               <option value="false">Apenas Inativas</option>
             </select>
+            <button id="btn-limpar-filtros-unid" type="button" class="text-xs px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition font-semibold">
+              ✕ Limpar Filtros
+            </button>
           </div>
         </div>
 
@@ -3457,6 +3775,15 @@ async function renderUnidades(container) {
     document.getElementById("filtro-unid-busca")?.addEventListener("input", triggerFilter);
     document.getElementById("filtro-unid-uf")?.addEventListener("change", triggerFilter);
     document.getElementById("filtro-unid-status")?.addEventListener("change", triggerFilter);
+    document.getElementById("btn-limpar-filtros-unid")?.addEventListener("click", () => {
+      const b = document.getElementById("filtro-unid-busca");
+      const uf = document.getElementById("filtro-unid-uf");
+      const st = document.getElementById("filtro-unid-status");
+      if (b) b.value = "";
+      if (uf) uf.value = "";
+      if (st) st.value = "";
+      triggerFilter();
+    });
     triggerFilter();
   } catch (err) {
     container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar unidades: ${err.message}</div>`;
