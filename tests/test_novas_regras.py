@@ -367,3 +367,161 @@ def test_atualizar_valor_diaria_oficial_propaga_unidades(client, edkallenn_heade
     assert res_restaura.status_code == 200
     assert res_restaura.json()["valor"] == 335.0
 
+
+def _criar_servidor_teste(client, headers, matricula, nome_guerra, nome_completo):
+    existentes = client.get("/api/servidores", headers=headers).json()
+    for s in existentes:
+        if s["matricula"] == matricula:
+            return s
+    res = client.post(
+        "/api/servidores",
+        json={
+            "matricula": matricula,
+            "nome_completo": nome_completo,
+            "nome_guerra": nome_guerra,
+            "cargo_sigla": "APF",
+            "unidade_sigla": "SR/PF/PB",
+            "email_institucional": f"{matricula.lower()}@pf.gov.br",
+            "telefone_celular": "83999990000",
+            "is_missionario_geral": True,
+            "ativo": True
+        },
+        headers=headers
+    )
+    assert res.status_code in (200, 201), res.text
+    return res.json()
+
+
+def test_criar_missao_individual_sem_codigo_sem_chefe_e_justificativa_vazia(client, edkallenn_headers):
+    """Garante criação de missão INDIVIDUAL sem código, sem chefe e com justificativa opcional."""
+    srv = _criar_servidor_teste(client, edkallenn_headers, "PF99881", "GUERRAIND1", "Servidor Teste Individual Sem Codigo")
+
+    payload = {
+        "titulo": "Diligência Individual Sem Código e Sem Justificativa",
+        "justificativa": "",
+        "tipo_missao": "Inteligência / Análise",
+        "modalidade": "INDIVIDUAL",
+        "meio_transporte": "TERRESTRE",
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "DPF/CGE/PB",
+        "localidade_descricao": "Campina Grande / PB",
+        "data_inicio": "2026-11-10",
+        "data_termino": "2026-11-12",
+        "missionario_matricula": srv["matricula"],
+        "responsavel_matricula": None
+    }
+
+    res = client.post("/api/missoes", json=payload, headers=edkallenn_headers)
+    assert res.status_code == 201, f"Erro ao criar missão sem código/chefe/justificativa: {res.text}"
+    m = res.json()
+
+    assert m["codigo_missao"].startswith("MIS-2026-")
+    assert m["justificativa"] == ""
+    assert m["responsavel_matricula"] is None
+    assert m["missionario_matricula"] == srv["matricula"]
+    assert m["missionario_nome_guerra"] == srv.get("nome_guerra")
+    assert m["status_atual"] == "Pendente de Alocação"
+    assert len(m["participantes"]) == 1
+    assert m["participantes"][0]["servidor_nome_guerra"] == srv.get("nome_guerra")
+
+
+def test_status_oficiais_unificados_transicao_e_filtros(client, edkallenn_headers):
+    """Testa transição para todos os 11 status oficiais e verifica que todos retornam nos filtros."""
+    from urllib.parse import quote
+    from app.status_utils import OFFICIAL_STATUSES
+
+    srv = _criar_servidor_teste(client, edkallenn_headers, "PF99882", "GUERRASTAT2", "Servidor Teste Status Unificados")
+
+    payload = {
+        "titulo": "Missão Teste Status Unificados 2026",
+        "justificativa": "",
+        "tipo_missao": "Operacional / Repressão",
+        "modalidade": "INDIVIDUAL",
+        "meio_transporte": "TERRESTRE",
+        "unidade_solicitante": "SR/PF/PB",
+        "unidade_destino": "DPF/PAT/PB",
+        "localidade_descricao": "Patos / PB",
+        "data_inicio": "2026-11-20",
+        "data_termino": "2026-11-22",
+        "missionario_matricula": srv["matricula"],
+        "status_atual": "Indicado"
+    }
+    res_create = client.post("/api/missoes", json=payload, headers=edkallenn_headers)
+    assert res_create.status_code == 201, res_create.text
+    missao_id = res_create.json()["id"]
+
+    for st in OFFICIAL_STATUSES:
+        res_patch = client.patch(
+            f"/api/missoes/{missao_id}/status",
+            json={"novo_status": st, "observacao": f"Transição para {st}"},
+            headers=edkallenn_headers
+        )
+        assert res_patch.status_code == 200, f"Falha ao mudar para {st}: {res_patch.text}"
+        assert res_patch.json()["status_atual"] == st
+
+        res_list = client.get(
+            f"/api/missoes?status={quote(st)}&ano=2026&modalidade=INDIVIDUAL",
+            headers=edkallenn_headers
+        )
+        assert res_list.status_code == 200
+        ids = {item["id"] for item in res_list.json()}
+        assert missao_id in ids, f"Missão {missao_id} não retornou no filtro status={st}"
+
+        res_dash = client.get(
+            f"/api/dashboard/summary?status={quote(st)}&ano=2026&modalidade=INDIVIDUAL",
+            headers=edkallenn_headers
+        )
+        assert res_dash.status_code == 200
+        assert res_dash.json()["total_missoes"] >= 1
+
+        # Regressão: PCDP CADASTRADA não deve vazar no filtro OM EMITIDA
+        if st == "PCDP CADASTRADA":
+            res_om = client.get(
+                f"/api/missoes?status={quote('OM EMITIDA')}&ano=2026&modalidade=INDIVIDUAL",
+                headers=edkallenn_headers
+            )
+            assert missao_id not in {item["id"] for item in res_om.json()}
+
+
+def test_busca_e_exportacao_nome_guerra(client, edkallenn_headers):
+    """Verifica busca por nome_guerra na API de missões e presença nas exportações CSV/XLSX."""
+    from urllib.parse import quote
+
+    mat_unica = "PF99887"
+    _criar_servidor_teste(client, edkallenn_headers, mat_unica, "GUERRAX99", "Carlos Augusto Ferreira Testa")
+
+    res_create = client.post(
+        "/api/missoes",
+        json={
+            "titulo": "Missão Busca Nome Guerra Unica",
+            "justificativa": "",
+            "tipo_missao": "Administrativa / Correição",
+            "modalidade": "INDIVIDUAL",
+            "meio_transporte": "TERRESTRE",
+            "unidade_solicitante": "SR/PF/PB",
+            "unidade_destino": "DPF/CGE/PB",
+            "localidade_descricao": "Campina Grande / PB",
+            "data_inicio": "2026-10-05",
+            "data_termino": "2026-10-06",
+            "missionario_matricula": mat_unica,
+            "status_atual": "SAT pendente"
+        },
+        headers=edkallenn_headers
+    )
+    assert res_create.status_code == 201, res_create.text
+    missao_id = res_create.json()["id"]
+
+    res_q = client.get(f"/api/missoes?q={quote('GUERRAX99')}", headers=edkallenn_headers)
+    assert res_q.status_code == 200
+    assert missao_id in {m["id"] for m in res_q.json()}
+
+    res_csv = client.get("/api/export/missoes.csv", headers=edkallenn_headers)
+    assert res_csv.status_code == 200
+    csv_text = res_csv.content.decode("utf-8-sig")
+    assert "Nome Guerra" in csv_text
+    assert "GUERRAX99" in csv_text
+
+    res_xlsx = client.get("/api/export/missoes.xlsx", headers=edkallenn_headers)
+    assert res_xlsx.status_code == 200
+
+

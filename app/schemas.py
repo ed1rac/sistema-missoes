@@ -147,7 +147,7 @@ class MissaoBase(BaseModel):
     responsavel_matricula: Optional[str] = None
     missionario_matricula: Optional[str] = None
     modalidade: str = "INDIVIDUAL"  # 'INDIVIDUAL' como padrão
-    status_atual: str = "RASCUNHO"
+    status_atual: str = "Pendente de Alocação"
     meio_transporte: str = "AEREO"  # AEREO, TERRESTRE, PROPRIO
     custo_estimado_passagens: float = Field(default=0.0, ge=0.0)
     numero_sat: Optional[str] = None
