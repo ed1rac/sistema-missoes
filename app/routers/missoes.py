@@ -15,6 +15,14 @@ from app.database import get_db
 from app.calculator import compute_participant_financials, parse_date
 from app.audit import log_audit
 
+from app.status_utils import (
+    OFFICIAL_STATUSES,
+    CONCLUDED_STATUS_VALUES,
+    normalize_canonical_status,
+    is_approval_restricted_status,
+    build_status_filter_clause,
+)
+
 router = APIRouter(prefix="/api/missoes", tags=["Missões Institucionais"])
 
 def _format_participante(row: dict) -> ParticipanteOut:
@@ -23,6 +31,7 @@ def _format_participante(row: dict) -> ParticipanteOut:
         missao_id=row["missao_id"],
         servidor_matricula=row["servidor_matricula"],
         servidor_nome=row.get("servidor_nome"),
+        servidor_nome_guerra=row.get("servidor_nome_guerra"),
         servidor_cargo=row.get("servidor_cargo"),
         servidor_lotacao=row.get("servidor_lotacao"),
         papel=row["papel"],
@@ -47,7 +56,11 @@ def _format_participante(row: dict) -> ParticipanteOut:
 def _get_missao_full(missao_id_or_code: str, conn) -> Optional[dict]:
     m = conn.execute(
         """
-        SELECT m.*, s.nome_completo as responsavel_nome, sm.nome_completo as missionario_nome
+        SELECT m.*,
+               s.nome_completo as responsavel_nome,
+               s.nome_guerra as responsavel_nome_guerra,
+               sm.nome_completo as missionario_nome,
+               sm.nome_guerra as missionario_nome_guerra
         FROM missoes m
         LEFT JOIN servidores s ON m.responsavel_matricula = s.matricula
         LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
@@ -61,7 +74,7 @@ def _get_missao_full(missao_id_or_code: str, conn) -> Optional[dict]:
     # Participantes com dados do servidor
     p_rows = conn.execute(
         """
-        SELECT p.*, s.nome_completo as servidor_nome, s.cargo_sigla as servidor_cargo, s.unidade_sigla as servidor_lotacao
+        SELECT p.*, s.nome_completo as servidor_nome, s.nome_guerra as servidor_nome_guerra, s.cargo_sigla as servidor_cargo, s.unidade_sigla as servidor_lotacao
         FROM missoes_participantes p
         JOIN servidores s ON p.servidor_matricula = s.matricula
         WHERE p.missao_id = ?
@@ -104,7 +117,11 @@ def list_missoes(
     current_user: dict = Depends(get_current_user)
 ):
     query = """
-        SELECT m.*, s.nome_completo as responsavel_nome, sm.nome_completo as missionario_nome,
+        SELECT m.*,
+               s.nome_completo as responsavel_nome,
+               s.nome_guerra as responsavel_nome_guerra,
+               sm.nome_completo as missionario_nome,
+               sm.nome_guerra as missionario_nome_guerra,
                COUNT(p.id) as total_participantes,
                COALESCE(SUM(p.valor_total_diarias), 0.0) as total_custo_diarias,
                COALESCE(SUM(p.valor_passagem_aerea), 0.0) as total_custo_passagens,
@@ -118,24 +135,25 @@ def list_missoes(
     params = []
 
     if q:
-        query += " AND (m.codigo_missao LIKE ? OR m.titulo LIKE ? OR m.localidade_descricao LIKE ? OR m.numero_om LIKE ? OR m.numero_pcdp LIKE ?)"
+        query += """ AND (
+            m.codigo_missao LIKE ? OR m.titulo LIKE ? OR m.localidade_descricao LIKE ?
+            OR m.numero_om LIKE ? OR m.numero_pcdp LIKE ?
+            OR s.nome_completo LIKE ? OR s.nome_guerra LIKE ?
+            OR sm.nome_completo LIKE ? OR sm.nome_guerra LIKE ?
+            OR EXISTS (
+                SELECT 1 FROM missoes_participantes mp
+                JOIN servidores sp ON mp.servidor_matricula = sp.matricula
+                WHERE mp.missao_id = m.id
+                  AND (sp.nome_completo LIKE ? OR sp.nome_guerra LIKE ? OR sp.matricula LIKE ?)
+            )
+        )"""
         term = f"%{q.strip()}%"
-        params.extend([term, term, term, term, term])
+        params.extend([term] * 12)
 
     if status:
-        st = status.strip()
-        st_upper = st.upper()
-        if st_upper in ("CADASTRO_SCDP", "CADASTRAR_SCDP", "PCDP_CADASTRADA", "PCDP CADASTRADA"):
-            query += " AND m.status_atual IN ('PCDP CADASTRADA', 'PCDP_CADASTRADA', 'PCDP_TRAMITADA', 'OM_EMITIDA', 'OM EMITIDA')"
-        elif st_upper in ("PRESTACAO_CONTAS_PENDENTE", "PRESTACAO_CONTAS", "PCDP_PRESTAR_CONTAS", "PCDP PRESTAR CONTAS"):
-            query += " AND m.status_atual IN ('PRESTACAO_CONTAS', 'PCDP PRESTAR CONTAS', 'PCDP_PRESTAR_CONTAS')"
-        elif st_upper in ("OM_PENDENTE", "OM PENDENTE"):
-            query += " AND m.status_atual IN ('APROVADA', 'SAT ATENDIDA', 'SAT_ATENDIDA', 'SAT PENDENTE', 'INDICADO', 'PENDENTE DE ALOCAÇÃO', 'PENDENTE DE ALOCACAO')"
-        elif st_upper in ("CONCLUIDA", "CONCLUIDO", "CONCLUÍDO", "CONCLUÍDA"):
-            query += " AND m.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído', 'CONCLUÍDA')"
-        else:
-            query += " AND UPPER(m.status_atual) = ?"
-            params.append(st_upper)
+        st_sql, st_params = build_status_filter_clause(status, "m.status_atual")
+        query += st_sql
+        params.extend(st_params)
 
     if tipo:
         query += " AND m.tipo_missao = ?"
@@ -219,8 +237,10 @@ def list_missoes(
             total_dias=int(r["total_dias"]),
             responsavel_matricula=r["responsavel_matricula"],
             responsavel_nome=r["responsavel_nome"],
+            responsavel_nome_guerra=r["responsavel_nome_guerra"],
             missionario_matricula=r["missionario_matricula"],
             missionario_nome=r["missionario_nome"],
+            missionario_nome_guerra=r["missionario_nome_guerra"],
             modalidade=r["modalidade"] or "INDIVIDUAL",
             status_atual=r["status_atual"],
             meio_transporte=r["meio_transporte"] or "AEREO",
@@ -261,12 +281,26 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
     total_dias = (d_termino - d_inicio).days + 1
     mid = f"mis-{uuid.uuid4().hex[:12]}"
     modalidade = (data.modalidade or "EQUIPE").upper()
+    raw_codigo = (data.codigo_missao or "").strip()
+    justificativa_clean = (data.justificativa or "").strip()
+    status_inicial = (
+        (normalize_canonical_status(data.status_atual) or data.status_atual.strip())
+        if data.status_atual else "Pendente de Alocação"
+    )
+    resp_mat = data.responsavel_matricula.strip() if (data.responsavel_matricula and data.responsavel_matricula.strip()) else None
+    miss_mat = data.missionario_matricula.strip() if (data.missionario_matricula and data.missionario_matricula.strip()) else None
 
     with get_db() as conn:
-        # Verifica se código já existe
-        exist = conn.execute("SELECT id FROM missoes WHERE codigo_missao = ?", (data.codigo_missao.strip(),)).fetchone()
-        if exist:
-            raise HTTPException(status_code=400, detail=f"Já existe missão com o código {data.codigo_missao}.")
+        # Gera código interno automático se omitido pela UI
+        if raw_codigo:
+            codigo_missao_final = raw_codigo
+            exist = conn.execute("SELECT id FROM missoes WHERE codigo_missao = ?", (codigo_missao_final,)).fetchone()
+            if exist:
+                raise HTTPException(status_code=400, detail=f"Já existe missão com o código {codigo_missao_final}.")
+        else:
+            codigo_missao_final = f"MIS-{d_inicio.year}-{uuid.uuid4().hex[:6].upper()}"
+            while conn.execute("SELECT id FROM missoes WHERE codigo_missao = ?", (codigo_missao_final,)).fetchone():
+                codigo_missao_final = f"MIS-{d_inicio.year}-{uuid.uuid4().hex[:6].upper()}"
 
         # Se valor_diaria_padrao não informado ou padrão, buscar da unidade de destino se disponível
         valor_diaria = data.valor_diaria_padrao
@@ -322,11 +356,11 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                mid, data.codigo_missao.strip(), data.titulo.strip(), data.justificativa.strip(),
+                mid, codigo_missao_final, data.titulo.strip(), justificativa_clean,
                 data.tipo_missao, data.unidade_solicitante, data.unidade_destino, setor_dest,
                 data.localidade_descricao.strip(), str(d_inicio), str(d_termino), total_dias,
-                data.responsavel_matricula, data.missionario_matricula,
-                modalidade, data.status_atual or "RASCUNHO",
+                resp_mat, miss_mat,
+                modalidade, status_inicial,
                 meio_transp, custo_passagem,
                 data.numero_sat, data.numero_om, data.numero_pcdp, data.processo_sei,
                 valor_diaria, data.observacoes
@@ -411,7 +445,7 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
         operacao="CREATE",
         entidade_tabela="missoes",
         registro_id=mid,
-        detalhes={"codigo_missao": data.codigo_missao, "titulo": data.titulo, "modalidade": modalidade, "valor_diaria": valor_diaria}
+        detalhes={"codigo_missao": codigo_missao_final, "titulo": data.titulo, "modalidade": modalidade, "valor_diaria": valor_diaria}
     )
 
     return MissaoOut(**res)
@@ -463,9 +497,12 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
         if data.custo_estimado_passagens is not None:
             updates.append("custo_estimado_passagens = ?")
             params.append(data.custo_estimado_passagens)
-        if data.responsavel_matricula is not None:
+        fields_set = getattr(data, "model_fields_set", set())
+        if "responsavel_matricula" in fields_set:
             updates.append("responsavel_matricula = ?")
-            params.append(data.responsavel_matricula)
+            params.append(data.responsavel_matricula.strip() if data.responsavel_matricula else None)
+        elif data.modalidade and data.modalidade.upper() == "INDIVIDUAL":
+            updates.append("responsavel_matricula = NULL")
         if data.missionario_matricula is not None:
             updates.append("missionario_matricula = ?")
             params.append(data.missionario_matricula.strip() if data.missionario_matricula else None)
@@ -474,8 +511,14 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
             params.append(data.modalidade.upper())
 
         if data.status_atual is not None:
+            st_norm = normalize_canonical_status(data.status_atual)
+            if not st_norm:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Status '{data.status_atual}' inválido. Valores aceitos: {', '.join(OFFICIAL_STATUSES)}"
+                )
             updates.append("status_atual = ?")
-            params.append(data.status_atual)
+            params.append(st_norm)
         if data.numero_sat is not None:
             updates.append("numero_sat = ?")
             params.append(data.numero_sat)
@@ -593,30 +636,15 @@ def change_missao_status(codigo_ou_id: str, payload: StatusUpdate, request: Requ
             detail="Permissão insuficiente: Perfil de consulta não pode alterar status de missões."
         )
 
-    status_permitidos = [
-        "INDICADO", "PENDENTE DE ALOCAÇÃO", "PENDENTE DE ALOCACAO",
-        "SAT PENDENTE", "SAT ATENDIDA", "SAT RECUSADA", "SAT REITERADA",
-        "OM EMITIDA", "PCDP CADASTRADA", "PCDP ENCAMINHADA", "PCDP PRESTAR CONTAS",
-        "CONCLUÍDO", "CONCLUIDO",
-        # Legados / compatibilidade com testes e fluxos internos
-        "RASCUNHO", "SOLICITADA", "EM_ANALISE", "REJEITADA", "APROVADA",
-        "OM_EMITIDA", "PCDP_TRAMITADA", "EM_ANDAMENTO", "PRESTACAO_CONTAS",
-        "CONCLUIDA", "CANCELADA"
-    ]
-    novo_status = payload.novo_status.strip().upper()
-    if novo_status not in status_permitidos:
+    novo_status = normalize_canonical_status(payload.novo_status)
+    if not novo_status:
         raise HTTPException(
             status_code=400,
-            detail=f"Status '{payload.novo_status}' inválido. Valores aceitos: {', '.join(status_permitidos)}"
+            detail=f"Status '{payload.novo_status}' inválido. Valores aceitos: {', '.join(OFFICIAL_STATUSES)}"
         )
 
     # Restrições de perfil para CADASTRADOR
-    status_aprovacao = {
-        "APROVADA", "OM_EMITIDA", "OM EMITIDA", "PCDP_TRAMITADA", "PCDP CADASTRADA",
-        "PCDP ENCAMINHADA", "CONCLUIDA", "CONCLUIDO", "CONCLUÍDO", "REJEITADA",
-        "SAT ATENDIDA", "SAT RECUSADA"
-    }
-    if user_role == "CADASTRADOR" and novo_status in status_aprovacao:
+    if user_role == "CADASTRADOR" and is_approval_restricted_status(novo_status):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Perfil CADASTRADOR não possui permissão para aprovar missões ou emitir OMs/PCDPs."
@@ -962,7 +990,7 @@ def delete_missao(codigo_ou_id: str, request: Request, current_user: dict = Depe
             raise HTTPException(status_code=404, detail="Missão não encontrada.")
 
         # Se missão já estiver com OM emitida ou concluída, cancelamos em vez de apagar
-        if m["status_atual"] in ("OM_EMITIDA", "PCDP_TRAMITADA", "EM_ANDAMENTO", "CONCLUIDA"):
+        if m["status_atual"] in ("OM_EMITIDA", "OM EMITIDA", "PCDP_TRAMITADA", "PCDP CADASTRADA", "PCDP ENCAMINHADA", "PCDP PRESTAR CONTAS", "EM_ANDAMENTO") or m["status_atual"] in CONCLUDED_STATUS_VALUES:
             conn.execute("UPDATE missoes SET status_atual = 'CANCELADA', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (m["id"],))
             action = "CANCEL"
             msg = f"Missão {m['codigo_missao']} cancelada formalmente (mantida para auditoria financeira)."

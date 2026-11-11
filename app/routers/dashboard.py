@@ -5,6 +5,15 @@ from fastapi import APIRouter, Depends, Query
 from app.schemas import DashboardSummary, AlertItem
 from app.auth import get_current_user
 from app.database import get_db
+from app.status_utils import (
+    CONCLUDED_STATUS_VALUES,
+    CANCELLED_OR_REJECTED_VALUES,
+    SCDP_STAGE_VALUES,
+    PRESTACAO_CONTAS_STAGE_VALUES,
+    OM_PENDENTE_STAGE_VALUES,
+    sql_in_clause,
+    build_status_filter_clause,
+)
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard Executivo"])
 
@@ -31,19 +40,9 @@ def _build_missao_filter(
     params = []
 
     if status:
-        st = status.strip()
-        st_upper = st.upper()
-        if st_upper in ("CADASTRO_SCDP", "CADASTRAR_SCDP", "PCDP_CADASTRADA", "PCDP CADASTRADA"):
-            where += f" AND {alias}.status_atual IN ('PCDP CADASTRADA', 'PCDP_CADASTRADA', 'PCDP_TRAMITADA', 'OM_EMITIDA', 'OM EMITIDA')"
-        elif st_upper in ("PRESTACAO_CONTAS_PENDENTE", "PRESTACAO_CONTAS", "PCDP_PRESTAR_CONTAS", "PCDP PRESTAR CONTAS"):
-            where += f" AND {alias}.status_atual IN ('PRESTACAO_CONTAS', 'PCDP PRESTAR CONTAS', 'PCDP_PRESTAR_CONTAS')"
-        elif st_upper in ("OM_PENDENTE", "OM PENDENTE"):
-            where += f" AND {alias}.status_atual IN ('APROVADA', 'SAT ATENDIDA', 'SAT_ATENDIDA', 'SAT PENDENTE', 'INDICADO', 'PENDENTE DE ALOCAÇÃO', 'PENDENTE DE ALOCACAO')"
-        elif st_upper in ("CONCLUIDA", "CONCLUIDO", "CONCLUÍDO", "CONCLUÍDA"):
-            where += f" AND {alias}.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído', 'CONCLUÍDA')"
-        else:
-            where += f" AND UPPER({alias}.status_atual) = ?"
-            params.append(st_upper)
+        st_sql, st_params = build_status_filter_clause(status, f"{alias}.status_atual")
+        where += st_sql
+        params.extend(st_params)
 
     if tipo:
         where += f" AND {alias}.tipo_missao = ?"
@@ -182,16 +181,21 @@ def get_dashboard_summary(
             {f_where} AND m.status_atual IN (
                 'RASCUNHO', 'SOLICITADA', 'EM_ANALISE', 'APROVADA',
                 'OM_EMITIDA', 'OM EMITIDA', 'PCDP_TRAMITADA', 'PCDP CADASTRADA',
-                'INDICADO', 'PENDENTE DE ALOCAÇÃO', 'SAT PENDENTE', 'SAT ATENDIDA'
+                'PCDP ENCAMINHADA', 'PCDP PRESTAR CONTAS',
+                'INDICADO', 'Indicado',
+                'PENDENTE DE ALOCAÇÃO', 'PENDENTE DE ALOCACAO', 'Pendente de Alocação',
+                'SAT PENDENTE', 'SAT pendente', 'SAT ATENDIDA', 'SAT Atendida',
+                'SAT REITERADA', 'SAT Reiterada'
             )
             """,
             f_params
         ).fetchone()["cnt"]
 
         # Concluídas
+        c_sql, c_params = sql_in_clause("m.status_atual", CONCLUDED_STATUS_VALUES)
         concluidas = conn.execute(
-            f"SELECT COUNT(*) as cnt FROM missoes m {f_where} AND m.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído')",
-            f_params
+            f"SELECT COUNT(*) as cnt FROM missoes m {f_where} {c_sql}",
+            f_params + c_params
         ).fetchone()["cnt"]
 
         # Servidores ativos
@@ -305,55 +309,55 @@ def get_dashboard_summary(
 
         # QUANTIDADE DE SERVIDORES POR STATUS DE FLUXO (filtrados pelo contexto ativo)
         # 1. QTOS SERVIDORES NO STATUS CADASTRAR SCDP
+        scdp_sql, scdp_p = sql_in_clause("m.status_atual", SCDP_STAGE_VALUES)
         scdp_srv = conn.execute(
             f"""
             SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
             FROM missoes m
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             {st_join}
-            {f_where_st} {st_extra}
-              AND m.status_atual IN ('PCDP CADASTRADA', 'PCDP_CADASTRADA', 'PCDP_TRAMITADA', 'OM_EMITIDA', 'OM EMITIDA')
+            {f_where_st} {st_extra} {scdp_sql}
             """,
-            st_params
+            st_params + scdp_p
         ).fetchone()["cnt"]
 
         # 2. QTOS SERVIDORES NO STATUS PRESTAÇÃO CONTAS PENDENTE
+        pc_sql, pc_p = sql_in_clause("m.status_atual", PRESTACAO_CONTAS_STAGE_VALUES)
         pc_srv = conn.execute(
             f"""
             SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
             FROM missoes m
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             {st_join}
-            {f_where_st} {st_extra}
-              AND m.status_atual IN ('PRESTACAO_CONTAS', 'PCDP PRESTAR CONTAS', 'PCDP_PRESTAR_CONTAS')
+            {f_where_st} {st_extra} {pc_sql}
             """,
-            st_params
+            st_params + pc_p
         ).fetchone()["cnt"]
 
         # 3. QTOS SERVIDORES NO STATUS OM PENDENTE
+        om_sql, om_p = sql_in_clause("m.status_atual", OM_PENDENTE_STAGE_VALUES)
         om_srv = conn.execute(
             f"""
             SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
             FROM missoes m
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             {st_join}
-            {f_where_st} {st_extra}
-              AND m.status_atual IN ('APROVADA', 'SAT ATENDIDA', 'SAT_ATENDIDA', 'SAT PENDENTE', 'INDICADO', 'PENDENTE DE ALOCAÇÃO')
+            {f_where_st} {st_extra} {om_sql}
             """,
-            st_params
+            st_params + om_p
         ).fetchone()["cnt"]
 
         # 4. QUANTOS SERVIDORES NO STATUS MISSÃO CONCLUÍDA
+        conc_sql, conc_p = sql_in_clause("m.status_atual", CONCLUDED_STATUS_VALUES)
         conc_srv = conn.execute(
             f"""
             SELECT COUNT(DISTINCT COALESCE(p.servidor_matricula, m.missionario_matricula)) as cnt
             FROM missoes m
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             {st_join}
-            {f_where_st} {st_extra}
-              AND m.status_atual IN ('CONCLUIDA', 'CONCLUIDO', 'Concluído')
+            {f_where_st} {st_extra} {conc_sql}
             """,
-            st_params
+            st_params + conc_p
         ).fetchone()["cnt"]
 
         # Diária padrão atual
@@ -411,7 +415,7 @@ def get_dashboard_summary(
         # 3. Servidores com duplicidade/sobreposição de missões ativas
         conflitos = conn.execute(
             """
-            SELECT p1.servidor_matricula, s.nome_completo, m1.codigo_missao as m1_cod, m2.codigo_missao as m2_cod
+            SELECT p1.servidor_matricula, s.nome_completo, s.nome_guerra, m1.codigo_missao as m1_cod, m2.codigo_missao as m2_cod
             FROM missoes_participantes p1
             JOIN missoes_participantes p2 ON p1.servidor_matricula = p2.servidor_matricula AND p1.id != p2.id
             JOIN missoes m1 ON p1.missao_id = m1.id
@@ -426,10 +430,11 @@ def get_dashboard_summary(
         ).fetchall()
 
         for cf in conflitos:
+            rotulo_cf = f"{cf['nome_guerra']} ({cf['nome_completo']})" if cf["nome_guerra"] else cf["nome_completo"]
             alerts.append(AlertItem(
                 tipo="PERIGO",
                 titulo="Conflito de Agenda Detectado",
-                mensagem=f"Servidor {cf['nome_completo']} ({cf['servidor_matricula']}) possui sobreposição de datas entre as missões {cf['m1_cod']} e {cf['m2_cod']}.",
+                mensagem=f"Servidor {rotulo_cf} ({cf['servidor_matricula']}) possui sobreposição de datas entre as missões {cf['m1_cod']} e {cf['m2_cod']}.",
                 servidor_matricula=cf["servidor_matricula"]
             ))
 
@@ -439,10 +444,13 @@ def get_dashboard_summary(
         data_limite_aereo = (date.today() + timedelta(days=alerta_aereo_dias)).isoformat()
         hoje_str = date.today().isoformat()
 
+        excluded_air = CONCLUDED_STATUS_VALUES + CANCELLED_OR_REJECTED_VALUES
+        excl_ph = ", ".join(["?"] * len(excluded_air))
         aereos_criticos = conn.execute(
-            """
+            f"""
             SELECT m.codigo_missao, m.titulo, m.data_inicio, m.data_termino, m.status_atual,
                    COALESCE(s.nome_completo, sm.nome_completo, 'Policial Designado') as servidor_nome,
+                   COALESCE(s.nome_guerra, sm.nome_guerra, '') as servidor_nome_guerra,
                    COALESCE(s.matricula, sm.matricula, m.missionario_matricula, '-') as servidor_mat,
                    COALESCE(p.meio_transporte, m.meio_transporte) as meio_transporte,
                    p.localizador_aereo, p.numero_eticket
@@ -450,7 +458,7 @@ def get_dashboard_summary(
             LEFT JOIN missoes_participantes p ON m.id = p.missao_id
             LEFT JOIN servidores s ON p.servidor_matricula = s.matricula
             LEFT JOIN servidores sm ON m.missionario_matricula = sm.matricula
-            WHERE m.status_atual NOT IN ('CANCELADA', 'REJEITADA', 'CONCLUIDA', 'CONCLUIDO')
+            WHERE m.status_atual NOT IN ({excl_ph})
               AND (m.meio_transporte = 'AEREO' OR p.meio_transporte = 'AEREO' OR (p.valor_passagem_aerea IS NOT NULL AND p.valor_passagem_aerea > 0) OR m.custo_estimado_passagens > 0)
               AND (
                   (m.data_inicio >= ? AND m.data_inicio <= ?)
@@ -459,7 +467,7 @@ def get_dashboard_summary(
               )
             ORDER BY m.data_inicio ASC, servidor_nome ASC
             """,
-            (hoje_str, data_limite_aereo, hoje_str, data_limite_aereo)
+            (*excluded_air, hoje_str, data_limite_aereo, hoje_str, data_limite_aereo)
         ).fetchall()
 
         missoes_aereas = defaultdict(list)
@@ -468,7 +476,14 @@ def get_dashboard_summary(
 
         for cod, srv_list in missoes_aereas.items():
             m_info = srv_list[0]
-            nomes = [f"{s['servidor_nome']} (Matrícula {s['servidor_mat']})" for s in srv_list]
+            nomes = [
+                (
+                    f"{s['servidor_nome_guerra']} - {s['servidor_nome']} (Matrícula {s['servidor_mat']})"
+                    if s["servidor_nome_guerra"]
+                    else f"{s['servidor_nome']} (Matrícula {s['servidor_mat']})"
+                )
+                for s in srv_list
+            ]
             alerts.append(AlertItem(
                 tipo="ALERTA",
                 titulo=f"Emissão de Bilhete Aéreo (Prazo Crítico: {alerta_aereo_dias} dias)",

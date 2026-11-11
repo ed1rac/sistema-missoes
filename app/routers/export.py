@@ -11,6 +11,14 @@ from app.database import get_db
 
 router = APIRouter(prefix="/api/export", tags=["Exportação e Interoperabilidade"])
 
+def _fmt_srv_export(guerra: str | None, nome: str | None) -> str:
+    n = (nome or "").strip()
+    g = (guerra or "").strip()
+    if g and n:
+        return f"{g} - {n}"
+    return g or n
+
+
 @router.get("/missoes.csv")
 def export_missoes_csv(current_user: dict = Depends(get_current_user)):
     with get_db() as conn:
@@ -19,7 +27,9 @@ def export_missoes_csv(current_user: dict = Depends(get_current_user)):
             SELECT 
                 m.codigo_missao, m.titulo, m.tipo_missao, m.modalidade,
                 sr.nome_completo as responsavel_nome,
+                sr.nome_guerra as responsavel_nome_guerra,
                 sm.nome_completo as missionario_nome,
+                sm.nome_guerra as missionario_nome_guerra,
                 m.unidade_solicitante, m.unidade_destino, m.localidade_descricao,
                 m.data_inicio, m.data_termino, m.total_dias, m.status_atual,
                 m.numero_om, m.numero_pcdp, m.valor_diaria_padrao,
@@ -42,7 +52,7 @@ def export_missoes_csv(current_user: dict = Depends(get_current_user)):
     writer = csv.writer(output, delimiter=';')
 
     writer.writerow([
-        "Código da Missão", "Título", "Tipo", "Modalidade", "Responsável", "Missionário", "Solicitante", "Destino",
+        "Código da Missão", "Título", "Tipo", "Modalidade", "Responsável (Nome de Guerra / Nome)", "Missionário (Nome de Guerra / Nome)", "Solicitante", "Destino",
         "Localidade", "Início", "Término", "Dias", "Status", "Nº OM",
         "Nº PCDP", "Valor Diária Base (R$)", "Nº Participantes",
         "Custo Diárias (R$)", "Custo Passagens (R$)", "Custo Total (R$)"
@@ -51,7 +61,8 @@ def export_missoes_csv(current_user: dict = Depends(get_current_user)):
     for r in rows:
         writer.writerow([
             r["codigo_missao"], r["titulo"], r["tipo_missao"], r["modalidade"] or "EQUIPE",
-            r["responsavel_nome"] or "", r["missionario_nome"] or "",
+            _fmt_srv_export(r["responsavel_nome_guerra"], r["responsavel_nome"]),
+            _fmt_srv_export(r["missionario_nome_guerra"], r["missionario_nome"]),
             r["unidade_solicitante"], r["unidade_destino"] or "", r["localidade_descricao"],
             r["data_inicio"], r["data_termino"], r["total_dias"], r["status_atual"],
             r["numero_om"] or "", r["numero_pcdp"] or "", f"{r['valor_diaria_padrao']:.2f}",
@@ -75,7 +86,9 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
             SELECT 
                 m.codigo_missao, m.titulo, m.tipo_missao, m.modalidade,
                 sr.nome_completo as responsavel_nome,
+                sr.nome_guerra as responsavel_nome_guerra,
                 sm.nome_completo as missionario_nome,
+                sm.nome_guerra as missionario_nome_guerra,
                 m.unidade_solicitante, m.unidade_destino, m.localidade_descricao,
                 m.data_inicio, m.data_termino, m.total_dias, m.status_atual,
                 m.numero_om, m.numero_pcdp, m.valor_diaria_padrao,
@@ -96,7 +109,7 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
             """
             SELECT 
                 m.codigo_missao, m.titulo as missao_titulo, p.servidor_matricula,
-                s.nome_completo, s.cargo_sigla, s.unidade_sigla, p.papel,
+                s.nome_completo, s.nome_guerra, s.cargo_sigla, s.unidade_sigla, p.papel,
                 p.meio_transporte, p.data_apresentacao, p.data_retorno,
                 p.dias_participacao, p.is_missao_sede, p.qtd_diarias,
                 p.valor_diaria_unitaria, p.valor_total_diarias, p.valor_passagem_aerea,
@@ -139,7 +152,8 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
     for r in missoes:
         ws1.append([
             r["codigo_missao"], r["titulo"], r["tipo_missao"], r["modalidade"] or "EQUIPE",
-            r["responsavel_nome"] or "", r["missionario_nome"] or "",
+            _fmt_srv_export(r["responsavel_nome_guerra"], r["responsavel_nome"]),
+            _fmt_srv_export(r["missionario_nome_guerra"], r["missionario_nome"]),
             r["unidade_solicitante"], r["unidade_destino"] or "", r["localidade_descricao"],
             r["data_inicio"], r["data_termino"], r["total_dias"], r["status_atual"],
             r["numero_om"] or "", r["numero_pcdp"] or "", r["valor_diaria_padrao"],
@@ -149,7 +163,7 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
     # Aba 2: Participantes e Diárias
     ws2 = wb.create_sheet(title="Efetivo e Diárias")
     headers2 = [
-        "Código Missão", "Missão", "Matrícula", "Servidor", "Cargo",
+        "Código Missão", "Missão", "Matrícula", "Nome de Guerra", "Servidor", "Cargo",
         "Lotação", "Papel", "Transporte", "Apresentação", "Retorno",
         "Dias", "Sede (Sem Diária)", "Qtd Diárias", "Valor Unitário (R$)",
         "Total Diárias (R$)", "Passagem (R$)", "Custo Total (R$)", "Localizador"
@@ -165,7 +179,7 @@ def export_missoes_xlsx(current_user: dict = Depends(get_current_user)):
     for p in participantes:
         ws2.append([
             p["codigo_missao"], p["missao_titulo"], p["servidor_matricula"],
-            p["nome_completo"], p["cargo_sigla"], p["unidade_sigla"], p["papel"],
+            p["nome_guerra"] or "", p["nome_completo"], p["cargo_sigla"], p["unidade_sigla"], p["papel"],
             p["meio_transporte"], p["data_apresentacao"], p["data_retorno"],
             p["dias_participacao"], "Sim" if p["is_missao_sede"] else "Não",
             p["qtd_diarias"], p["valor_diaria_unitaria"], p["valor_total_diarias"],
@@ -199,7 +213,7 @@ def export_missoes_json(current_user: dict = Depends(get_current_user)):
             m_dict = dict(m)
             parts = conn.execute(
                 """
-                SELECT p.*, s.nome_completo, s.cargo_sigla, s.unidade_sigla
+                SELECT p.*, s.nome_completo, s.nome_guerra, s.cargo_sigla, s.unidade_sigla
                 FROM missoes_participantes p
                 JOIN servidores s ON p.servidor_matricula = s.matricula
                 WHERE p.missao_id = ?

@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS missoes (
     id TEXT PRIMARY KEY,
     codigo_missao TEXT UNIQUE NOT NULL, -- ex: MIS-2026-00101
     titulo TEXT NOT NULL,
-    justificativa TEXT NOT NULL,
+    justificativa TEXT NOT NULL DEFAULT '',
     tipo_missao TEXT NOT NULL,
     unidade_solicitante TEXT NOT NULL,
     unidade_destino TEXT,

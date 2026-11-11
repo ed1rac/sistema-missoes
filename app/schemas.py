@@ -123,6 +123,7 @@ class ParticipanteOut(ParticipanteBase):
     id: str
     missao_id: str
     servidor_nome: Optional[str] = None
+    servidor_nome_guerra: Optional[str] = None
     servidor_cargo: Optional[str] = None
     servidor_lotacao: Optional[str] = None
     dias_participacao: int
@@ -133,9 +134,9 @@ class ParticipanteOut(ParticipanteBase):
     updated_at: Optional[str] = None
 
 class MissaoBase(BaseModel):
-    codigo_missao: str
+    codigo_missao: Optional[str] = None
     titulo: str
-    justificativa: str
+    justificativa: Optional[str] = ""
     tipo_missao: str  # Operacional, Capacitação, etc.
     unidade_solicitante: str
     unidade_destino: Optional[str] = None
@@ -221,7 +222,9 @@ class MissaoOut(MissaoBase):
     id: str
     total_dias: int
     responsavel_nome: Optional[str] = None
+    responsavel_nome_guerra: Optional[str] = None
     missionario_nome: Optional[str] = None
+    missionario_nome_guerra: Optional[str] = None
     total_participantes: int = 0
     total_custo_diarias: float = 0.0
     total_custo_passagens: float = 0.0
