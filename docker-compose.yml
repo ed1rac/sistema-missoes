@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   sis-missoes:
     build:
@@ -12,17 +10,14 @@ services:
     environment:
       - PORT=5179
       - HOST=0.0.0.0
+      - UVICORN_RELOAD=false
       - DEFAULT_DAILY_ALLOWANCE=425.00
       - JWT_SECRET=sis-missoes-super-secret-key-pf-2026-production
     volumes:
-      - missoes_data:/app/app/data
+      - ./app/data:/app/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5179/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-
-volumes:
-  missoes_data:
-    name: sis_missoes_pf_data

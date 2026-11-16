@@ -1,12 +1,13 @@
 # ==============================================================================
-# SIS-MISSÕES PF - Dockerfile Oficial (Python 3.13-slim)
+# Sistema de Controle de Diárias e Passagens - Dockerfile Oficial (Python 3.13-slim)
 # ==============================================================================
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=5179 \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    UVICORN_RELOAD=false
 
 WORKDIR /app
 
