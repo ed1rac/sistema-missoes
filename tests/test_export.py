@@ -21,7 +21,7 @@ def test_export_missoes_json(client, admin_headers):
     res = client.get("/api/export/missoes.json", headers=admin_headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["plataforma"] == "SIS-MISSÕES PF"
+    assert data["plataforma"] == "Sistema de Controle de Diárias e Passagens"
     assert "missoes" in data
     assert len(data["missoes"]) >= 3
 
