@@ -17,8 +17,8 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(
-    title="SIS-MISSÕES PF",
-    description="Sistema Institucional de Gestão e Controle de Missões e Servidores da Polícia Federal",
+    title="Sistema de Controle de Diárias e Passagens",
+    description="Sistema Institucional de Controle de Diárias e Passagens e Gestão de Missões da Polícia Federal",
     version="2.0.0",
     lifespan=lifespan
 )

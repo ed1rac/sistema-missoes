@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS servidores (
     matricula TEXT UNIQUE NOT NULL,
     nome_completo TEXT NOT NULL,
     nome_guerra TEXT,
+    cpf TEXT,
     cargo_sigla TEXT NOT NULL,
     unidade_sigla TEXT NOT NULL,
     login_rede TEXT UNIQUE,
@@ -112,7 +113,7 @@ CREATE TABLE IF NOT EXISTS missoes (
     missionario_matricula TEXT REFERENCES servidores(matricula),
     modalidade TEXT NOT NULL DEFAULT 'INDIVIDUAL', -- 'INDIVIDUAL' ou 'EQUIPE'
     status_atual TEXT NOT NULL DEFAULT 'RASCUNHO',
-    meio_transporte TEXT NOT NULL DEFAULT 'AEREO', -- AEREO, TERRESTRE, PROPRIO
+    meio_transporte TEXT NOT NULL DEFAULT 'NAO_DEFINIDO', -- NAO_DEFINIDO, AEREO, TERRESTRE, PROPRIO
     custo_estimado_passagens REAL NOT NULL DEFAULT 0.0,
     numero_sat TEXT,
     numero_om TEXT,
@@ -206,6 +207,12 @@ def init_db(db_path: str = None):
                     conn.execute("ALTER TABLE missoes ADD COLUMN meio_transporte TEXT NOT NULL DEFAULT 'AEREO';")
                 if "custo_estimado_passagens" not in cols:
                     conn.execute("ALTER TABLE missoes ADD COLUMN custo_estimado_passagens REAL NOT NULL DEFAULT 0.0;")
+
+            srv_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='servidores'").fetchone()
+            if srv_check:
+                s_cols = [r["name"] for r in conn.execute("PRAGMA table_info(servidores)").fetchall()]
+                if "cpf" not in s_cols:
+                    conn.execute("ALTER TABLE servidores ADD COLUMN cpf TEXT;")
 
             unid_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orgao_unidades'").fetchone()
             if unid_check:

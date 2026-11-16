@@ -102,7 +102,8 @@ def is_approval_restricted_status(canonical_or_raw: str) -> bool:
     key = _ascii_upper_key(canonical_or_raw)
     restritos = {
         "APROVADA", "OM EMITIDA", "PCDP TRAMITADA", "PCDP CADASTRADA",
-        "PCDP ENCAMINHADA", "CONCLUIDA", "CONCLUIDO", "REJEITADA",
+        "PCDP ENCAMINHADA", "PCDP PRESTAR CONTAS", "PRESTACAO CONTAS",
+        "CONCLUIDA", "CONCLUIDO", "REJEITADA",
         "SAT ATENDIDA", "SAT RECUSADA",
     }
     return upper in restritos or key in restritos
@@ -125,6 +126,8 @@ SCDP_STAGE_VALUES: Tuple[str, ...] = tuple(
         set(
             _case_variants("PCDP CADASTRADA")
             + _case_variants("PCDP_CADASTRADA")
+            + _case_variants("PCDP ENCAMINHADA")
+            + _case_variants("PCDP_ENCAMINHADA")
             + _case_variants("PCDP_TRAMITADA")
             + _case_variants("OM EMITIDA")
             + _case_variants("OM_EMITIDA")
@@ -192,6 +195,10 @@ def build_status_filter_clause(raw_status: str, column: str = "m.status_atual") 
 
     if st_key == "PCDP CADASTRADA":
         vals = tuple(sorted(set(_case_variants("PCDP CADASTRADA") + _case_variants("PCDP_CADASTRADA"))))
+        return sql_in_clause(column, vals)
+
+    if st_key == "PCDP ENCAMINHADA":
+        vals = tuple(sorted(set(_case_variants("PCDP ENCAMINHADA") + _case_variants("PCDP_ENCAMINHADA"))))
         return sql_in_clause(column, vals)
 
     if st_key == "PCDP PRESTAR CONTAS":

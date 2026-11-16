@@ -58,10 +58,11 @@ class ServidorBase(BaseModel):
     matricula: str
     nome_completo: str
     nome_guerra: Optional[str] = None
+    cpf: Optional[str] = None
     cargo_sigla: str  # DPF, EPF, APF, PPF, PCF, ADM
     unidade_sigla: str  # SR/PF/DF, DPF/CAS/PR, etc.
     login_rede: Optional[str] = None
-    email_institucional: str
+    email_institucional: Optional[str] = None
     telefone_celular: Optional[str] = None
     tpe: bool = False
     is_missionario_geral: bool = True
@@ -74,6 +75,7 @@ class ServidorCreate(ServidorBase):
 class ServidorUpdate(BaseModel):
     nome_completo: Optional[str] = None
     nome_guerra: Optional[str] = None
+    cpf: Optional[str] = None
     cargo_sigla: Optional[str] = None
     unidade_sigla: Optional[str] = None
     login_rede: Optional[str] = None
@@ -135,26 +137,26 @@ class ParticipanteOut(ParticipanteBase):
 
 class MissaoBase(BaseModel):
     codigo_missao: Optional[str] = None
-    titulo: str
+    titulo: Optional[str] = None
     justificativa: Optional[str] = ""
-    tipo_missao: str  # Operacional, Capacitação, etc.
-    unidade_solicitante: str
+    tipo_missao: Optional[str] = None  # Operacional, Capacitação, etc.
+    unidade_solicitante: Optional[str] = None
     unidade_destino: Optional[str] = None
     setor_destino: Optional[str] = None
-    localidade_descricao: str
+    localidade_descricao: Optional[str] = None
     data_inicio: str
     data_termino: str
     responsavel_matricula: Optional[str] = None
     missionario_matricula: Optional[str] = None
     modalidade: str = "INDIVIDUAL"  # 'INDIVIDUAL' como padrão
     status_atual: str = "Pendente de Alocação"
-    meio_transporte: str = "AEREO"  # AEREO, TERRESTRE, PROPRIO
+    meio_transporte: str = "NAO_DEFINIDO"  # NAO_DEFINIDO, AEREO, TERRESTRE, PROPRIO
     custo_estimado_passagens: float = Field(default=0.0, ge=0.0)
     numero_sat: Optional[str] = None
     numero_om: Optional[str] = None
     numero_pcdp: Optional[str] = None
     processo_sei: Optional[str] = None
-    valor_diaria_padrao: float = Field(default=425.00, ge=0.0)  # CAMPO EDITÁVEL DA DIÁRIA NA MISSÃO
+    valor_diaria_padrao: Optional[float] = Field(default=None, ge=0.0)  # CAMPO EDITÁVEL DA DIÁRIA NA MISSÃO
     observacoes: Optional[str] = None
 
 class MissaoCreate(MissaoBase):
@@ -220,6 +222,7 @@ class SetorDestinoCreate(BaseModel):
 
 class MissaoOut(MissaoBase):
     id: str
+    valor_diaria_padrao: float = 425.00
     total_dias: int
     responsavel_nome: Optional[str] = None
     responsavel_nome_guerra: Optional[str] = None

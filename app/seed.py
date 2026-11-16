@@ -166,7 +166,7 @@ def seed_database(db_path: str = None):
         # 2. Configurações Globais
         configs = [
             ("valor_diaria_padrao", str(DEFAULT_DAILY_ALLOWANCE), "Valor base institucional da diária federal em R$"),
-            ("sistema_nome", "SIS-MISSÕES PF", "Nome oficial da plataforma corporativa"),
+            ("sistema_nome", "Sistema de Controle de Diárias e Passagens", "Nome oficial da plataforma corporativa"),
             ("orgao_gestor", "Polícia Federal - Superintendência Regional na Paraíba", "Órgão institucional gestor do sistema"),
             ("alerta_pcdp_dias", "5", "Dias de antecedência mínima para emissão obrigatória da PCDP"),
             ("alerta_prestacao_contas_dias", "5", "Dias máximos para prestação de contas após término da missão"),
@@ -420,33 +420,34 @@ def seed_database(db_path: str = None):
 
         # 7. Servidores Canônicos e da Paraíba
         servidores_data = [
-            ("srv-01", "10293", "ALEXANDRE SILVEIRA MENDES", "SILVEIRA", "DPF", "DPF/CAS/PR", "silveira.asm", "silveira.asm@pf.gov.br", "(45) 99123-4567", 1, 1, "Especialista em Técnicas de Investigação"),
-            ("srv-02", "14582", "BEATRIZ ALENCAR ROCHA", "BEATRIZ", "EPF", "SR/PF/AM", "rocha.bar", "rocha.bar@pf.gov.br", "(92) 98456-7890", 1, 1, "Apoio cartorário operacional e instrução disciplinar"),
-            ("srv-03", "19874", "CARLOS EDUARDO BRAGANCA", "BRAGANCA", "APF", "SR/PF/DF", "braganca.ceb", "braganca.ceb@pf.gov.br", "(61) 99876-5432", 1, 0, "Lotado em Brasília/DF. Não gera diárias em missões no DF."),
-            ("srv-04", "12459", "DANIELA FONTES MONTEIRO", "MONTEIRO", "PCF", "DITEC/PF", "monteiro.dfm", "monteiro.dfm@pf.gov.br", "(61) 98765-4321", 0, 1, "Perita em Balística Forense. Missões periciais de campo."),
-            ("srv-05", "21034", "EDUARDO MARTINS COSTA", "COSTA", "PPF", "DPF/CAS/PR", "costa.emc", "costa.emc@pf.gov.br", "(45) 99345-6789", 0, 1, "Papiloscopista de campo. Perícia necropapiloscópica."),
-            ("srv-06", "33412", "FRANCISCO DE ASSIS PEREIRA", "ASSIS", "DPF", "SR/PF/PB", "assis.fap", "assis.fap@pf.gov.br", "(83) 98877-1122", 1, 1, "Delegado Regional Executivo na Paraíba"),
-            ("srv-07", "35891", "MARIA CLARA CAVALCANTI", "CLARA", "EPF", "CGE/PF/PB", "cavalcanti.mcc", "cavalcanti.mcc@pf.gov.br", "(83) 98765-3344", 1, 1, "Chefe de Cartório em Campina Grande/PB"),
-            ("srv-08", "38104", "JOSE TAVARES SOBRINHO", "TAVARES", "APF", "PAT/PF/PB", "tavares.jts", "tavares.jts@pf.gov.br", "(83) 99123-5566", 1, 1, "Agente operacional experiente no sertão paraibano"),
-            ("srv-09", "41205", "ANA BEATRIZ NOGUEIRA", "NOGUEIRA", "PCF", "SR/PF/PB", "nogueira.abn", "nogueira.abn@pf.gov.br", "(83) 99345-7788", 0, 1, "Perita Criminal Federal da SR/PB"),
-            ("srv-10", "43719", "LUCAS MARANHAO GOMES", "MARANHAO", "PPF", "CGE/PF/PB", "gomes.lmg", "gomes.lmg@pf.gov.br", "(83) 98112-9900", 0, 1, "Papiloscopista de campo em Campina Grande/PB")
+            ("srv-01", "10293", "ALEXANDRE SILVEIRA MENDES", "SILVEIRA", "111.222.333-01", "DPF", "DPF/CAS/PR", "silveira.asm", "silveira.asm@pf.gov.br", "(45) 99123-4567", 1, 1, "Especialista em Técnicas de Investigação"),
+            ("srv-02", "14582", "BEATRIZ ALENCAR ROCHA", "BEATRIZ", "111.222.333-02", "EPF", "SR/PF/AM", "rocha.bar", "rocha.bar@pf.gov.br", "(92) 98456-7890", 1, 1, "Apoio cartorário operacional e instrução disciplinar"),
+            ("srv-03", "19874", "CARLOS EDUARDO BRAGANCA", "BRAGANCA", "111.222.333-03", "APF", "SR/PF/DF", "braganca.ceb", "braganca.ceb@pf.gov.br", "(61) 99876-5432", 1, 0, "Lotado em Brasília/DF. Não gera diárias em missões no DF."),
+            ("srv-04", "12459", "DANIELA FONTES MONTEIRO", "MONTEIRO", "111.222.333-04", "PCF", "DITEC/PF", "monteiro.dfm", "monteiro.dfm@pf.gov.br", "(61) 98765-4321", 0, 1, "Perita em Balística Forense. Missões periciais de campo."),
+            ("srv-05", "21034", "EDUARDO MARTINS COSTA", "COSTA", "111.222.333-05", "PPF", "DPF/CAS/PR", "costa.emc", "costa.emc@pf.gov.br", "(45) 99345-6789", 0, 1, "Papiloscopista de campo. Perícia necropapiloscópica."),
+            ("srv-06", "33412", "FRANCISCO DE ASSIS PEREIRA", "ASSIS", "111.222.333-06", "DPF", "SR/PF/PB", "assis.fap", "assis.fap@pf.gov.br", "(83) 98877-1122", 1, 1, "Delegado Regional Executivo na Paraíba"),
+            ("srv-07", "35891", "MARIA CLARA CAVALCANTI", "CLARA", "111.222.333-07", "EPF", "CGE/PF/PB", "cavalcanti.mcc", "cavalcanti.mcc@pf.gov.br", "(83) 98765-3344", 1, 1, "Chefe de Cartório em Campina Grande/PB"),
+            ("srv-08", "38104", "JOSE TAVARES SOBRINHO", "TAVARES", "111.222.333-08", "APF", "PAT/PF/PB", "tavares.jts", "tavares.jts@pf.gov.br", "(83) 99123-5566", 1, 1, "Agente operacional experiente no sertão paraibano"),
+            ("srv-09", "41205", "ANA BEATRIZ NOGUEIRA", "NOGUEIRA", "111.222.333-09", "PCF", "SR/PF/PB", "nogueira.abn", "nogueira.abn@pf.gov.br", "(83) 99345-7788", 0, 1, "Perita Criminal Federal da SR/PB"),
+            ("srv-10", "43719", "LUCAS MARANHAO GOMES", "MARANHAO", "111.222.333-10", "PPF", "CGE/PF/PB", "gomes.lmg", "gomes.lmg@pf.gov.br", "(83) 98112-9900", 0, 1, "Papiloscopista de campo em Campina Grande/PB")
         ]
-        for sid, mat, nome, nguerra, cargo, unid, login, mail, fone, tpe, miss_geral, obs in servidores_data:
+        for sid, mat, nome, nguerra, cpf, cargo, unid, login, mail, fone, tpe, miss_geral, obs in servidores_data:
             conn.execute(
                 """
                 INSERT INTO servidores (
-                    id, matricula, nome_completo, nome_guerra, cargo_sigla, unidade_sigla,
+                    id, matricula, nome_completo, nome_guerra, cpf, cargo_sigla, unidade_sigla,
                     login_rede, email_institucional, telefone_celular, tpe, is_missionario_geral,
                     observacoes_gerais, ativo
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ON CONFLICT(matricula) DO UPDATE SET
                     nome_completo=excluded.nome_completo,
+                    cpf=COALESCE(servidores.cpf, excluded.cpf),
                     cargo_sigla=excluded.cargo_sigla,
                     unidade_sigla=excluded.unidade_sigla,
                     is_missionario_geral=excluded.is_missionario_geral
                 """,
-                (sid, mat, nome, nguerra, cargo, unid, login, mail, fone, tpe, miss_geral, obs)
+                (sid, mat, nome, nguerra, cpf, cargo, unid, login, mail, fone, tpe, miss_geral, obs)
             )
 
         # 8. Missões Canônicas (Preservadas para testes existentes)
