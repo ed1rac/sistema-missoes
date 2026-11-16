@@ -1,6 +1,5 @@
 /**
- * SIS-MISSÕES PF - Frontend Application v2.1
- * Plataforma Corporativa de Controle de Missões e Servidores
+ * Sistema de Controle de Diárias e Passagens - Frontend Application
  * Polícia Federal • DPF / Paraíba
  */
 
@@ -59,6 +58,31 @@ const OFFICIAL_STATUSES = [
   "Concluído"
 ];
 
+const APPROVAL_RESTRICTED_STATUS_KEYS = new Set([
+  "APROVADA",
+  "OM EMITIDA",
+  "PCDP TRAMITADA",
+  "PCDP CADASTRADA",
+  "PCDP ENCAMINHADA",
+  "PCDP PRESTAR CONTAS",
+  "PRESTACAO CONTAS",
+  "CONCLUIDA",
+  "CONCLUIDO",
+  "REJEITADA",
+  "SAT ATENDIDA",
+  "SAT RECUSADA"
+]);
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ==============================================================================
 // UTILITÁRIOS DE API E FORMATAÇÃO
 // ==============================================================================
@@ -70,7 +94,13 @@ async function apiFetch(url, options = {}) {
     ...(options.headers || {})
   };
 
-  const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  } catch (networkErr) {
+    throw new Error("Falha de conexão com o servidor (Failed to fetch). Verifique se o serviço está ativo e tente novamente.");
+  }
+
   if (response.status === 401) {
     logout();
     throw new Error("Sessão expirada. Faça login novamente.");
@@ -80,6 +110,23 @@ async function apiFetch(url, options = {}) {
     throw new Error(errorData.detail || `Erro HTTP ${response.status}`);
   }
   return response.json();
+}
+
+function renderApiErrorBox(titulo, err, retryCallbackStr) {
+  const msg = escapeHtml(err?.message || "Erro desconhecido de comunicação com o servidor.");
+  return `
+    <div class="p-6 bg-red-950/60 border border-red-800 rounded-2xl text-red-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+      <div>
+        <p class="font-bold text-sm text-red-100">⚠️ ${escapeHtml(titulo)}</p>
+        <p class="mt-1 text-red-200/90">${msg}</p>
+      </div>
+      ${retryCallbackStr ? `
+        <button type="button" onclick="${retryCallbackStr}" class="shrink-0 px-4 py-2 bg-red-800 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow">
+          🔄 Tentar Novamente
+        </button>
+      ` : ""}
+    </div>
+  `;
 }
 
 function formatMoney(val) {
@@ -119,15 +166,77 @@ function formatStatusLabel(status) {
   return oficial || status;
 }
 
-function renderOfficialStatusOptions(selectedVal = "", emptyLabel = "Todos os Status") {
+function renderOfficialStatusOptions(selectedVal = "", emptyLabel = "Todos os Status", restrictForCadastrador = false) {
   const normSel = normStatusKey(selectedVal);
+  const isCadastrador = restrictForCadastrador && CURRENT_USER && CURRENT_USER.role === "CADASTRADOR";
   return `
     ${emptyLabel ? `<option value="">${emptyLabel}</option>` : ""}
     ${OFFICIAL_STATUSES.map(st => {
-      const sel = normSel && normSel === normStatusKey(st) ? "selected" : "";
-      return `<option value="${st}" ${sel}>${st}</option>`;
+      const k = normStatusKey(st);
+      const sel = normSel && normSel === k ? "selected" : "";
+      const isRestricted = isCadastrador && APPROVAL_RESTRICTED_STATUS_KEYS.has(k);
+      const disabledAttr = (isRestricted && !sel) ? "disabled" : "";
+      const label = isRestricted ? `${st} (Restrito)` : st;
+      return `<option value="${st}" ${sel} ${disabledAttr}>${label}</option>`;
     }).join("")}
   `;
+}
+
+function normalizeDeslocamentoCode(raw) {
+  const k = normalizeTextKey(raw);
+  if (!k || k === "NAO DEFINIDO") return "NAO_DEFINIDO";
+  if (k === "AEREO") return "AEREO";
+  if (k === "PROPRIO") return "PROPRIO";
+  if (k === "TERRESTRE" || k === "VIATURA OFICIAL") return "TERRESTRE";
+  return String(raw || "NAO_DEFINIDO").trim().toUpperCase();
+}
+
+function renderDeslocamentoOptions(selectedVal = "NAO_DEFINIDO") {
+  const norm = normalizeDeslocamentoCode(selectedVal);
+  const opts = [
+    { val: "NAO_DEFINIDO", label: "NÃO DEFINIDO" },
+    { val: "AEREO", label: "AÉREO" },
+    { val: "TERRESTRE", label: "TERRESTRE" },
+    { val: "PROPRIO", label: "PRÓPRIO" }
+  ];
+  return opts.map(o => `<option value="${o.val}" ${norm === o.val ? "selected" : ""}>${o.label}</option>`).join("");
+}
+
+function formatTransporteText(meio) {
+  const norm = normalizeDeslocamentoCode(meio);
+  if (norm === "AEREO") return "✈️ Aéreo";
+  if (norm === "PROPRIO") return "🚙 Próprio";
+  if (norm === "TERRESTRE") return "🚗 Terrestre";
+  return "❔ Não Definido";
+}
+
+function formatTransporteBadge(meio) {
+  const norm = normalizeDeslocamentoCode(meio);
+  if (norm === "AEREO") {
+    return `<span class="bg-sky-950 border border-sky-800 text-sky-300 px-2 py-0.5 rounded text-[10px] font-bold">✈️ Aéreo</span>`;
+  }
+  if (norm === "PROPRIO") {
+    return `<span class="bg-purple-950 border border-purple-800 text-purple-300 px-2 py-0.5 rounded text-[10px] font-bold">🚙 Próprio</span>`;
+  }
+  if (norm === "TERRESTRE") {
+    return `<span class="bg-emerald-950 border border-emerald-800 text-emerald-300 px-2 py-0.5 rounded text-[10px] font-bold">🚗 Terrestre</span>`;
+  }
+  return `<span class="bg-slate-800 border border-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold">❔ Não Definido</span>`;
+}
+
+function calcDiasEDiariasPreview(dtInicioStr, dtFimStr, isSede = false) {
+  if (!dtInicioStr || !dtFimStr) return { dias: 0, qtdDiarias: 0.0, valido: false };
+  const d1 = new Date(`${dtInicioStr.slice(0, 10)}T00:00:00`);
+  const d2 = new Date(`${dtFimStr.slice(0, 10)}T00:00:00`);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime()) || d2 < d1) {
+    return { dias: 0, qtdDiarias: 0.0, valido: false };
+  }
+  const dias = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+  let qtdDiarias = 0.0;
+  if (isSede) qtdDiarias = 0.0;
+  else if (dias <= 1) qtdDiarias = 0.5;
+  else qtdDiarias = Math.round((dias - 0.5) * 10) / 10;
+  return { dias, qtdDiarias, valido: true };
 }
 
 function getStatusBadgeClass(status) {
@@ -260,14 +369,22 @@ function updateUserInfo() {
   document.getElementById("user-display-role").textContent = CURRENT_USER.role;
   document.getElementById("user-avatar").textContent = (CURRENT_USER.username || "PF").slice(0, 2).toUpperCase();
 
+  const role = CURRENT_USER.role;
+
   // Controle de visibilidade de menus por RBAC
   const navUsuarios = document.getElementById("nav-usuarios");
   if (navUsuarios) {
-    if (CURRENT_USER.role === "ADMIN") {
-      navUsuarios.classList.remove("hidden");
-    } else {
-      navUsuarios.classList.add("hidden");
-    }
+    navUsuarios.classList.toggle("hidden", role !== "ADMIN");
+  }
+
+  const navAuditoria = document.getElementById("nav-auditoria");
+  if (navAuditoria) {
+    navAuditoria.classList.toggle("hidden", !["ADMIN", "GESTOR_NAC", "GERENCIAL"].includes(role));
+  }
+
+  const navConfig = document.getElementById("nav-config");
+  if (navConfig) {
+    navConfig.classList.toggle("hidden", !["ADMIN", "GESTOR_NAC"].includes(role));
   }
 }
 
@@ -277,10 +394,6 @@ async function loadSystemConfig() {
     configs.forEach(c => {
       SYSTEM_CONFIG[c.chave] = c.valor;
     });
-    const headerDiaria = document.getElementById("header-diaria-val");
-    if (headerDiaria && SYSTEM_CONFIG.valor_diaria_padrao) {
-      headerDiaria.textContent = formatMoney(SYSTEM_CONFIG.valor_diaria_padrao);
-    }
   } catch (err) {
     console.error("Erro ao carregar configurações", err);
   }
@@ -319,7 +432,7 @@ function navigate(viewName) {
   const container = document.getElementById("view-container");
   const titles = {
     dashboard: "Painel Executivo de Missões",
-    missoes: "Gestão Corporativa de Missões",
+    missoes: "GESTÃO RECRUTAMENTO",
     custos: "Custos por Missão e Servidor / Missionário",
     servidores: "Cadastro Integrado de Servidores da PF",
     "diarias-calc": "Simulador Oficial de Diárias (Legislação PF)",
@@ -329,7 +442,7 @@ function navigate(viewName) {
     unidades: "Cadastro de Unidades Solicitantes & Destino (PF)",
     config: "Parâmetros Gerais do Sistema e Diária Base"
   };
-  document.getElementById("page-title").textContent = titles[viewName] || "SIS-MISSÕES PF";
+  document.getElementById("page-title").textContent = titles[viewName] || "Sistema de Controle de Diárias e Passagens";
 
   // Destruir gráficos anteriores se houver
   destroyCharts();
@@ -551,6 +664,7 @@ async function renderDashboard(container) {
               <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Meio de Transporte</label>
               <select id="dash-filtro-transporte" onchange="aplicarFiltrosDashboard()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
                 <option value="">Todos os Meios</option>
+                <option value="NAO_DEFINIDO" ${DASHBOARD_FILTERS.meio_transporte === 'NAO_DEFINIDO' ? 'selected' : ''}>❔ Não Definido</option>
                 <option value="AEREO" ${DASHBOARD_FILTERS.meio_transporte === 'AEREO' ? 'selected' : ''}>✈️ Aéreo (Passagem Comercial)</option>
                 <option value="TERRESTRE" ${DASHBOARD_FILTERS.meio_transporte === 'TERRESTRE' ? 'selected' : ''}>🚗 Terrestre / Viatura Oficial</option>
                 <option value="PROPRIO" ${DASHBOARD_FILTERS.meio_transporte === 'PROPRIO' ? 'selected' : ''}>🚙 Veículo Próprio</option>
@@ -737,7 +851,7 @@ async function renderDashboard(container) {
     }
 
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar dashboard: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao carregar painel", err, "navigate('dashboard')");
   }
 }
 
@@ -842,6 +956,10 @@ function renderDashboardGraficosHtml() {
 }
 
 async function initializeDashboardCharts(qs) {
+  if (typeof Chart === "undefined") {
+    console.warn("Chart.js não carregado; gráficos desabilitados no modo offline.");
+    return;
+  }
   try {
     const chartsData = await apiFetch(`/api/dashboard/charts${qs}`);
     destroyCharts();
@@ -1175,15 +1293,15 @@ function renderDashboardKanbanHtml(missoes) {
 }
 
 // ==============================================================================
-// 2. GESTÃO DE MISSÕES (COM FILTROS COMPLETOS, MODALIDADE E MISSIONÁRIO)
+// 2. GESTÃO RECRUTAMENTO (LISTAGEM ENXUTA + FILTROS HOT)
 // ==============================================================================
 async function renderMissoes(container) {
-  container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando missões...</div>`;
+  container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando recrutamentos...</div>`;
   try {
     const missoes = await apiFetch("/api/missoes");
     window.LAST_MISSOES_LIST = missoes;
 
-    const podeCriar = CURRENT_USER && (CURRENT_USER.role === "ADMIN" || CURRENT_USER.role === "CADASTRADOR");
+    const podeCriar = CURRENT_USER && (CURRENT_USER.role === "ADMIN" || CURRENT_USER.role === "GESTOR_NAC" || CURRENT_USER.role === "CADASTRADOR");
 
     container.innerHTML = `
       <div class="space-y-4 animate-fade-in">
@@ -1191,13 +1309,13 @@ async function renderMissoes(container) {
         <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 class="text-sm font-bold text-white uppercase tracking-wider">Gestão Corporativa de Missões</h3>
-              <p class="text-xs text-slate-400">Missões Individuais (Padrão) e em Equipe • DPF/PB</p>
+              <h3 class="text-sm font-bold text-white uppercase tracking-wider">GESTÃO RECRUTAMENTO</h3>
+              <p class="text-xs text-slate-400">Recrutamentos Individuais (Padrão) e Missões em Equipe • DPF/PB</p>
             </div>
             ${podeCriar ? `
               <button onclick="openModalNovaMissao()" class="bg-gradient-to-r from-pf-gold to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow-lg flex items-center space-x-2 transition">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                <span>Nova Missão</span>
+                <span>Novo Recrutamento</span>
               </button>
             ` : `
               <span class="px-3 py-1 bg-slate-800 text-slate-400 text-xs rounded-xl font-semibold border border-slate-700">
@@ -1209,7 +1327,7 @@ async function renderMissoes(container) {
           <!-- Filtros Rápidos HOT -->
           <div class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-2 text-xs pt-2 border-t border-slate-800/80">
             <div class="md:col-span-2">
-              <input type="text" id="filtro-busca" value="${MISSOES_FILTERS.busca || ''}" placeholder="Buscar por nome de guerra, policial, título, cidade, OM..."
+              <input type="text" id="filtro-busca" value="${escapeHtml(MISSOES_FILTERS.busca || '')}" placeholder="Buscar por nome, matrícula, cidade, unidade, OM, PCDP..."
                      class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pf-gold">
             </div>
 
@@ -1221,7 +1339,7 @@ async function renderMissoes(container) {
 
             <div>
               <select id="filtro-modalidade" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-300 focus:outline-none">
-                <option value="INDIVIDUAL" ${MISSOES_FILTERS.modalidade === 'INDIVIDUAL' ? 'selected' : ''}>Missão Individual (Padrão)</option>
+                <option value="INDIVIDUAL" ${MISSOES_FILTERS.modalidade === 'INDIVIDUAL' ? 'selected' : ''}>Individual (Padrão)</option>
                 <option value="EQUIPE" ${MISSOES_FILTERS.modalidade === 'EQUIPE' ? 'selected' : ''}>Equipe Policial</option>
                 <option value="" ${!MISSOES_FILTERS.modalidade ? 'selected' : ''}>Todas as Modalidades</option>
               </select>
@@ -1254,20 +1372,17 @@ async function renderMissoes(container) {
           </div>
         </div>
 
-        <!-- Table -->
+        <!-- Table (5 colunas enxutas + Ação) -->
         <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs" id="tabela-missoes">
               <thead class="text-slate-400 border-b border-slate-800 uppercase font-semibold text-[10px]">
                 <tr>
-                  <th class="py-3 px-3">Modalidade</th>
-                  <th class="py-3 px-3">Título / Policial (Guerra)</th>
-                  <th class="py-3 px-3">Origem / Destino</th>
-                  <th class="py-3 px-3">Período</th>
-                  <th class="py-3 px-3">Status</th>
-                  <th class="py-3 px-3">Diária Base</th>
-                  <th class="py-3 px-3">Efetivo</th>
-                  <th class="py-3 px-3">Custo Total</th>
+                  <th class="py-3 px-3">SERVIDOR RECRUTADO</th>
+                  <th class="py-3 px-3">UNIDADE DESTINO</th>
+                  <th class="py-3 px-3">PERÍODO (N. DIAS)</th>
+                  <th class="py-3 px-3">STATUS</th>
+                  <th class="py-3 px-3">TOTAL DIÁRIAS</th>
                   <th class="py-3 px-3 text-right">Ações</th>
                 </tr>
               </thead>
@@ -1292,48 +1407,42 @@ async function renderMissoes(container) {
     applyMissoesFilter(missoes);
 
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao listar missões: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao listar recrutamentos", err, "navigate('missoes')");
   }
 }
 
 function renderMissoesRows(list) {
   if (list.length === 0) {
-    return `<tr><td colspan="9" class="text-center py-8 text-slate-500">Nenhuma missão encontrada com os filtros aplicados.</td></tr>`;
+    return `<tr><td colspan="6" class="text-center py-8 text-slate-500">Nenhum recrutamento encontrado com os filtros aplicados.</td></tr>`;
   }
-  return list.map(m => `
+  return list.map(m => {
+    const servidorNomeCompleto = m.missionario_nome || m.responsavel_nome || "Não designado";
+    const unidadeDestino = m.unidade_destino || m.localidade_descricao || "-";
+    return `
     <tr class="hover:bg-slate-800/40 transition">
-      <td class="py-3 px-3">
-        <span class="badge-status badge-${m.modalidade || 'EQUIPE'} text-[10px]">${m.modalidade || 'EQUIPE'}</span>
+      <td class="py-3 px-3 font-semibold text-white">
+        ${escapeHtml(servidorNomeCompleto)}
       </td>
-      <td class="py-3 px-3">
-        <p class="font-semibold text-white max-w-xs truncate">${m.titulo}</p>
-        ${m.modalidade === 'INDIVIDUAL' && (m.missionario_nome || m.missionario_nome_guerra) ? `
-          <p class="text-[11px] font-medium">Missionário: ${formatServidorDisplayHtml(m.missionario_nome_guerra, m.missionario_nome, m.missionario_matricula)}</p>
-        ` : (m.modalidade !== 'INDIVIDUAL' && (m.responsavel_nome || m.responsavel_nome_guerra) ? `
-          <p class="text-[11px] text-slate-400">Chefe: ${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)}</p>
-        ` : '')}
+      <td class="py-3 px-3 text-slate-200 font-medium">
+        ${escapeHtml(unidadeDestino)}
       </td>
-      <td class="py-3 px-3 text-slate-300">
-        <span class="font-medium text-slate-200">${m.unidade_solicitante}</span> &rarr; <span>${m.unidade_destino || m.localidade_descricao}</span>
+      <td class="py-3 px-3 text-slate-300 whitespace-nowrap">
+        ${formatDateBR(m.data_inicio)} a ${formatDateBR(m.data_termino)} (${m.total_dias} dias)
       </td>
-      <td class="py-3 px-3 text-slate-400 whitespace-nowrap">${formatDateBR(m.data_inicio)} a ${formatDateBR(m.data_termino)} (${m.total_dias}d)</td>
-      <td class="py-3 px-3">
+      <td class="py-3 px-3 whitespace-nowrap">
         <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${formatStatusLabel(m.status_atual)}</span>
       </td>
-      <td class="py-3 px-3 font-bold text-amber-300">
-        <span class="bg-amber-950/40 border border-amber-800/60 px-2 py-0.5 rounded text-[11px]">
-          ${formatMoney(m.valor_diaria_padrao)}
-        </span>
+      <td class="py-3 px-3 font-bold text-amber-300 whitespace-nowrap">
+        ${formatMoney(m.total_custo_diarias)}
       </td>
-      <td class="py-3 px-3 text-slate-300">${m.total_participantes} servidores</td>
-      <td class="py-3 px-3 font-bold text-emerald-400">${formatMoney(m.total_custo_geral)}</td>
-      <td class="py-3 px-3 text-right">
-        <button onclick="openMissaoDetail('${m.id}')" class="px-2.5 py-1 bg-pf-700 hover:bg-pf-600 text-white rounded text-[11px] font-semibold transition">
+      <td class="py-3 px-3 text-right whitespace-nowrap">
+        <button onclick="openMissaoDetail('${m.id}')" class="px-3 py-1 bg-pf-700 hover:bg-pf-600 text-white rounded-lg text-[11px] font-semibold transition">
           Gerenciar
         </button>
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function applyMissoesFilter(allMissions) {
@@ -1446,7 +1555,7 @@ async function renderCustos(container) {
             setor_destino: m.setor_destino || "-",
             modalidade: m.modalidade || "EQUIPE",
             status_atual: m.status_atual,
-            meio_transporte: p.meio_transporte || m.meio_transporte || "TERRESTRE",
+            meio_transporte: p.meio_transporte || m.meio_transporte || "NAO_DEFINIDO",
             servidor_matricula: p.servidor_matricula,
             servidor_nome: p.servidor_nome || m.missionario_nome || "-",
             servidor_nome_guerra: p.servidor_nome_guerra || m.missionario_nome_guerra || "",
@@ -1471,7 +1580,7 @@ async function renderCustos(container) {
           setor_destino: m.setor_destino || "-",
           modalidade: "INDIVIDUAL",
           status_atual: m.status_atual,
-          meio_transporte: m.meio_transporte || "AEREO",
+          meio_transporte: m.meio_transporte || "NAO_DEFINIDO",
           servidor_matricula: m.missionario_matricula || "-",
           servidor_nome: m.missionario_nome || "-",
           servidor_nome_guerra: m.missionario_nome_guerra || "",
@@ -1495,7 +1604,7 @@ async function renderCustos(container) {
           setor_destino: m.setor_destino || "-",
           modalidade: m.modalidade || "EQUIPE",
           status_atual: m.status_atual,
-          meio_transporte: m.meio_transporte || "AEREO",
+          meio_transporte: m.meio_transporte || "NAO_DEFINIDO",
           servidor_matricula: m.responsavel_matricula || "-",
           servidor_nome: m.responsavel_nome ? `${m.responsavel_nome} (+${m.total_participantes || 0} pol.)` : `Equipe (${m.total_participantes || 0} policiais)`,
           servidor_nome_guerra: m.responsavel_nome_guerra || "",
@@ -1588,6 +1697,7 @@ async function renderCustos(container) {
               <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-1">Transporte</label>
               <select id="custos-transporte" onchange="aplicarFiltrosCustos()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
                 <option value="">Todos</option>
+                <option value="NAO_DEFINIDO" ${CUSTOS_FILTERS.meio_transporte === 'NAO_DEFINIDO' ? 'selected' : ''}>❔ Não Definido</option>
                 <option value="AEREO" ${CUSTOS_FILTERS.meio_transporte === 'AEREO' ? 'selected' : ''}>✈️ Aéreo</option>
                 <option value="TERRESTRE" ${CUSTOS_FILTERS.meio_transporte === 'TERRESTRE' ? 'selected' : ''}>🚗 Terrestre</option>
                 <option value="PROPRIO" ${CUSTOS_FILTERS.meio_transporte === 'PROPRIO' ? 'selected' : ''}>🚙 Próprio</option>
@@ -1682,11 +1792,7 @@ async function renderCustos(container) {
                       <div class="text-[10px] text-slate-400">${it.unidade_destino}</div>
                     </td>
                     <td class="py-3 px-3 whitespace-nowrap">
-                      ${it.meio_transporte === 'AEREO' ? 
-                        `<span class="bg-sky-950 border border-sky-800 text-sky-300 px-2 py-0.5 rounded text-[10px] font-bold">✈️ Aéreo</span>` : 
-                        (it.meio_transporte === 'PROPRIO' ? 
-                          `<span class="bg-purple-950 border border-purple-800 text-purple-300 px-2 py-0.5 rounded text-[10px] font-bold">🚙 Próprio</span>` : 
-                          `<span class="bg-emerald-950 border border-emerald-800 text-emerald-300 px-2 py-0.5 rounded text-[10px] font-bold">🚗 Terrestre</span>`)}
+                      ${formatTransporteBadge(it.meio_transporte)}
                     </td>
                     <td class="py-3 px-3 text-slate-400 whitespace-nowrap text-[11px]">
                       ${formatDateBR(it.data_apresentacao)} a ${formatDateBR(it.data_retorno)}
@@ -1722,7 +1828,7 @@ async function renderCustos(container) {
     }
 
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar custos: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao carregar custos", err, "navigate('custos')");
   }
 }
 
@@ -1754,38 +1860,500 @@ function limparFiltrosCustos() {
 }
 
 // ==============================================================================
-// 3. DETALHES E GESTÃO DA MISSÃO (COM CAMPO DE DIÁRIA E RBAC)
+// SELETOR ÚNICO DE UNIDADE/CIDADE DE DESTINO + CÁLCULO AO VIVO
+// ==============================================================================
+function renderUnidadeDestinoOptions(unidades, selectedSigla = "") {
+  return `
+    <option value="">Selecione a Unidade / Cidade de Destino...</option>
+    ${(unidades || []).map(u => {
+      const sel = selectedSigla && u.sigla === selectedSigla ? "selected" : "";
+      const vDiaria = parseFloat(u.valor_diaria || 380).toFixed(2);
+      return `<option value="${escapeHtml(u.sigla)}" data-cidade="${escapeHtml(u.municipio)}/${escapeHtml(u.uf)}" data-diaria="${vDiaria}" ${sel}>${escapeHtml(u.sigla)} — ${escapeHtml(u.municipio)}/${escapeHtml(u.uf)} (R$ ${vDiaria})</option>`;
+    }).join("")}
+  `;
+}
+
+function filtrarUnidadeDestinoSelect(searchInputId, selectId, unidadesList) {
+  const term = normalizeTextKey(document.getElementById(searchInputId)?.value || "");
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const currentVal = sel.value;
+  const filtered = term
+    ? (unidadesList || []).filter(u => normalizeTextKey(`${u.sigla} ${u.nome_extenso} ${u.municipio} ${u.uf}`).includes(term))
+    : (unidadesList || []);
+
+  let html = `<option value="">${term ? `✓ ${filtered.length} encontrada(s) — selecione:` : "Selecione a Unidade / Cidade de Destino..."}</option>`;
+  html += filtered.map(u => {
+    const vDiaria = parseFloat(u.valor_diaria || 380).toFixed(2);
+    return `<option value="${escapeHtml(u.sigla)}" data-cidade="${escapeHtml(u.municipio)}/${escapeHtml(u.uf)}" data-diaria="${vDiaria}">${escapeHtml(u.sigla)} — ${escapeHtml(u.municipio)}/${escapeHtml(u.uf)} (R$ ${vDiaria})</option>`;
+  }).join("");
+  sel.innerHTML = html;
+
+  if (term && filtered.length === 1) {
+    sel.value = filtered[0].sigla;
+    sel.dispatchEvent(new Event("change"));
+  } else if (currentVal && filtered.some(u => u.sigla === currentVal)) {
+    sel.value = currentVal;
+  }
+}
+
+function atualizarPassagensPorDeslocamento(selectId, inputPassagensId) {
+  const desl = normalizeDeslocamentoCode(document.getElementById(selectId)?.value || "NAO_DEFINIDO");
+  const inp = document.getElementById(inputPassagensId);
+  if (!inp) return;
+  if (desl === "AEREO") {
+    inp.disabled = false;
+    inp.classList.remove("opacity-50", "cursor-not-allowed");
+  } else {
+    inp.value = "0.00";
+    inp.disabled = true;
+    inp.classList.add("opacity-50", "cursor-not-allowed");
+  }
+}
+
+function atualizarCalculoAoVivoRecrutamento(prefix) {
+  const dtInicio = document.getElementById(`${prefix}-dt-inicio`)?.value || "";
+  const dtFim = document.getElementById(`${prefix}-dt-termino`)?.value || "";
+  const valorDiaria = parseFloat(document.getElementById(`${prefix}-valor-diaria`)?.value || 0) || 0;
+  const desl = normalizeDeslocamentoCode(document.getElementById(`${prefix}-deslocamento`)?.value || "NAO_DEFINIDO");
+  const passagensInp = document.getElementById(`${prefix}-passagens`);
+  const valorPassagem = desl === "AEREO" ? (parseFloat(passagensInp?.value || 0) || 0) : 0;
+
+  const lotacao = document.getElementById(`${prefix}-srv-lotacao`)?.value || "";
+  const destino = document.getElementById(`${prefix}-unidade-destino`)?.value || "";
+  const mat = document.getElementById(`${prefix}-srv-matricula`)?.value?.trim() || "";
+  const srvObj = (ACTIVE_SERVERS_MODAL || []).find(s => s.matricula === mat);
+  const isLocalSrv = srvObj ? (srvObj.is_missionario_geral === false) : false;
+  const isSameSede = Boolean(lotacao && destino && lotacao === destino);
+  const isSede = isLocalSrv || isSameSede;
+
+  const calc = calcDiasEDiariasPreview(dtInicio, dtFim, isSede);
+  const totalDiarias = calc.valido ? Math.round(calc.qtdDiarias * valorDiaria * 100) / 100 : 0;
+  const totalGeral = Math.round((totalDiarias + valorPassagem) * 100) / 100;
+
+  const qteDiasEl = document.getElementById(`${prefix}-qtd-dias`);
+  if (qteDiasEl) {
+    if (!calc.valido) {
+      qteDiasEl.textContent = "-";
+    } else if (isSede) {
+      qteDiasEl.textContent = `${calc.dias} dias (0,0 diárias — Sede/Local)`;
+    } else {
+      qteDiasEl.textContent = `${calc.dias} dia${calc.dias === 1 ? "" : "s"} (${calc.qtdDiarias.toFixed(1).replace(".", ",")} diárias)`;
+    }
+  }
+
+  const totalDiariasEl = document.getElementById(`${prefix}-total-diarias`);
+  if (totalDiariasEl) totalDiariasEl.textContent = formatMoney(totalDiarias);
+
+  const resumoGeralEl = document.getElementById(`${prefix}-resumo-geral`);
+  const resumoDiariasEl = document.getElementById(`${prefix}-resumo-diarias`);
+  const resumoPassagensEl = document.getElementById(`${prefix}-resumo-passagens`);
+  if (resumoGeralEl) resumoGeralEl.textContent = formatMoney(totalGeral);
+  if (resumoDiariasEl) resumoDiariasEl.textContent = formatMoney(totalDiarias);
+  if (resumoPassagensEl) resumoPassagensEl.textContent = formatMoney(valorPassagem);
+
+  const isencaoBadge = document.getElementById(`${prefix}-isencao-aviso`);
+  if (isencaoBadge) {
+    if (isSede) {
+      isencaoBadge.textContent = isLocalSrv
+        ? "ℹ️ Isenção automática de diária: servidor cadastrado como efetivo local (sem diárias)."
+        : `ℹ️ Isenção automática de diária: servidor lotado na mesma unidade de destino (${destino}).`;
+      isencaoBadge.classList.remove("hidden");
+    } else {
+      isencaoBadge.classList.add("hidden");
+    }
+  }
+}
+
+// ==============================================================================
+// 3. DETALHES E GESTÃO ("GERENCIAR") — FORMULÁRIO UNIFICADO
 // ==============================================================================
 async function openMissaoDetail(codigoOuId) {
   const modalContainer = document.getElementById("modal-container");
   const modalContent = document.getElementById("modal-content");
-  modalContent.innerHTML = `<div class="p-8 text-center text-slate-400">Carregando detalhes da missão...</div>`;
+  modalContent.innerHTML = `<div class="p-8 text-center text-slate-400">Carregando detalhes do recrutamento...</div>`;
   modalContainer.classList.remove("hidden");
 
   try {
     const m = await apiFetch(`/api/missoes/${codigoOuId}`);
     const servidores = await apiFetch("/api/servidores?ativo=true");
     ACTIVE_SERVERS_MODAL = servidores;
+    const unidades = METADATA_CACHE.unidades.length ? METADATA_CACHE.unidades : await apiFetch("/api/missoes/meta/unidades");
+    const cargos = METADATA_CACHE.cargos.length ? METADATA_CACHE.cargos : await apiFetch("/api/missoes/meta/cargos");
+    const setores = METADATA_CACHE.setores.length ? METADATA_CACHE.setores : await apiFetch("/api/missoes/meta/setores").catch(() => []);
     const papeis = METADATA_CACHE.papeis.length ? METADATA_CACHE.papeis : await apiFetch("/api/missoes/meta/papeis");
 
     const isGerencial = CURRENT_USER && CURRENT_USER.role === "GERENCIAL";
+    const isCadastrador = CURRENT_USER && CURRENT_USER.role === "CADASTRADOR";
     const isIndividual = (m.modalidade || "INDIVIDUAL").toUpperCase() === "INDIVIDUAL";
-    const stKey = normStatusKey(m.status_atual);
 
+    let srvAtual = servidores.find(s => s.matricula === m.missionario_matricula) || null;
+    if (!srvAtual && m.missionario_matricula) {
+      srvAtual = await apiFetch(`/api/servidores/${encodeURIComponent(m.missionario_matricula)}`).catch(() => null);
+      if (srvAtual && !servidores.some(s => s.matricula === srvAtual.matricula)) {
+        ACTIVE_SERVERS_MODAL = [srvAtual, ...servidores];
+      }
+    }
+
+    if (isIndividual) {
+      const part0 = (m.participantes && m.participantes[0]) ? m.participantes[0] : null;
+      const nomeDestaque = (srvAtual?.nome_completo || m.missionario_nome || part0?.servidor_nome || m.titulo || "Servidor não definido");
+      const currStatusKey = normStatusKey(m.status_atual);
+      const statusTravadoCadastrador = isCadastrador && APPROVAL_RESTRICTED_STATUS_KEYS.has(currStatusKey);
+      const deslocNorm = normalizeDeslocamentoCode(m.meio_transporte || part0?.meio_transporte || "NAO_DEFINIDO");
+      const valorPassagemInicial = deslocNorm === "AEREO"
+        ? parseFloat(m.total_custo_passagens || m.custo_estimado_passagens || 0).toFixed(2)
+        : "0.00";
+
+      modalContent.innerHTML = `
+        <form id="form-gerenciar-individual" class="space-y-5 text-xs">
+          <!-- Cabeçalho com Nome do Servidor em Destaque Máximo (sem badges superiores ou título longo) -->
+          <div class="flex items-start justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 id="edit-header-servidor-nome" class="text-xl md:text-2xl font-extrabold text-white tracking-tight uppercase">${escapeHtml(nomeDestaque)}</h2>
+              <p class="text-[11px] text-slate-400 mt-1">
+                Matrícula: <span id="edit-header-matricula" class="font-mono text-pf-gold font-bold">${escapeHtml(srvAtual?.matricula || m.missionario_matricula || "-")}</span>
+                • Ordem de Missão (OM) / SCDP: <span class="font-mono text-slate-200">${escapeHtml(m.numero_om || "Não emitida")} / ${escapeHtml(m.numero_pcdp || "Pendente")}</span>
+              </p>
+            </div>
+            <button type="button" onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          ${isGerencial ? `
+            <div class="p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl text-blue-300 text-xs flex items-center space-x-2">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span><strong>Modo Consulta Gerencial:</strong> Visualização completa sem permissão de alteração.</span>
+            </div>
+          ` : ''}
+
+          <!-- BLOCO 1: DADOS DO SERVIDOR (2 COLUNAS EDITÁVEL) -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <h3 class="text-xs font-bold text-pf-gold uppercase tracking-wider">Dados do Servidor</h3>
+              ${!isGerencial ? `
+                <div class="flex items-center space-x-2">
+                  <span class="text-[10px] text-slate-400 uppercase font-semibold">Trocar servidor:</span>
+                  <select id="edit-trocar-servidor" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-white max-w-xs">
+                    ${ACTIVE_SERVERS_MODAL.map(s => `<option value="${escapeHtml(s.matricula)}" ${s.matricula === (srvAtual?.matricula || m.missionario_matricula) ? "selected" : ""}>${escapeHtml(s.nome_completo)} (${escapeHtml(s.matricula)})</option>`).join("")}
+                  </select>
+                </div>
+              ` : ""}
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <!-- Coluna 1 -->
+              <div class="space-y-2.5">
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Nome</label>
+                  <input type="text" id="edit-srv-nome" value="${escapeHtml(srvAtual?.nome_completo || m.missionario_nome || "")}" required ${isGerencial ? "disabled" : ""}
+                         class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold uppercase">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">CPF</label>
+                  <input type="text" id="edit-srv-cpf" value="${escapeHtml(srvAtual?.cpf || "")}" placeholder="000.000.000-00" ${isGerencial ? "disabled" : ""}
+                         class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Cargo</label>
+                  <select id="edit-srv-cargo" ${isGerencial ? "disabled" : ""} class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                    ${cargos.map(c => `<option value="${escapeHtml(c.sigla)}" ${srvAtual?.cargo_sigla === c.sigla ? "selected" : ""}>${escapeHtml(c.sigla)} - ${escapeHtml(c.descricao)}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Matrícula</label>
+                  <input type="text" id="edit-srv-matricula" value="${escapeHtml(srvAtual?.matricula || m.missionario_matricula || "")}" readonly
+                         class="w-full bg-slate-900/60 border border-slate-800 rounded-lg p-2 text-pf-gold font-mono font-bold cursor-not-allowed">
+                </div>
+              </div>
+
+              <!-- Coluna 2 -->
+              <div class="space-y-2.5">
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Lotação</label>
+                  <select id="edit-srv-lotacao" ${isGerencial ? "disabled" : ""} class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                    ${unidades.map(u => `<option value="${escapeHtml(u.sigla)}" ${srvAtual?.unidade_sigla === u.sigla ? "selected" : ""}>${escapeHtml(u.sigla)} - ${escapeHtml(u.nome_extenso)}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Telefone</label>
+                  <input type="text" id="edit-srv-telefone" value="${escapeHtml(srvAtual?.telefone_celular || "")}" placeholder="(83) 99999-9999" ${isGerencial ? "disabled" : ""}
+                         class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Login</label>
+                  <input type="text" id="edit-srv-login" value="${escapeHtml(srvAtual?.login_rede || "")}" placeholder="nome.sobrenome" ${isGerencial ? "disabled" : ""}
+                         class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Observação</label>
+                  <textarea id="edit-missao-obs" rows="2" placeholder="Observações deste recrutamento/viagem..." ${isGerencial ? "disabled" : ""}
+                            class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">${escapeHtml(m.observacoes || "")}</textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- BLOCO 2: DADOS DA MISSÃO (EDITÁVEL) -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-4">
+            <h3 class="text-xs font-bold text-pf-gold uppercase tracking-wider border-b border-slate-800 pb-2">Dados da Missão</h3>
+
+            <!-- Datas e Qte Dias -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Data Início</label>
+                <input type="date" id="edit-dt-inicio" value="${escapeHtml((m.data_inicio || "").slice(0, 10))}" required ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Data Final</label>
+                <input type="date" id="edit-dt-termino" value="${escapeHtml((m.data_termino || "").slice(0, 10))}" required ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Qte Dias</label>
+                <div id="edit-qtd-dias" class="w-full bg-slate-900/70 border border-slate-800 rounded-lg p-2 text-amber-300 font-bold">-</div>
+              </div>
+            </div>
+
+            <!-- Local da Missão: Seletor único Unidade/Cidade + Cidade + Setor + Valor da Diária -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div class="md:col-span-2">
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Local da Missão (Unidade / Cidade Destino)</label>
+                <input type="text" id="edit-unidade-search" placeholder="🔍 Filtrar unidade ou cidade..." ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 mb-1 text-xs text-white">
+                <select id="edit-unidade-destino" ${isGerencial ? "disabled" : ""} class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  ${renderUnidadeDestinoOptions(unidades, m.unidade_destino || "")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Cidade</label>
+                <input type="text" id="edit-cidade" value="${escapeHtml(m.localidade_descricao || "")}" required ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Setor</label>
+                <select id="edit-setor" ${isGerencial ? "disabled" : ""} class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  <option value="">Nenhum / Geral</option>
+                  ${setores.map(s => `<option value="${escapeHtml(s.sigla)}" ${m.setor_destino === s.sigla ? "selected" : ""}>${escapeHtml(s.sigla)} - ${escapeHtml(s.nome)}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+
+            <!-- Diária, Deslocamento, Passagens e Total Diárias -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Valor da Diária (R$)</label>
+                <input type="number" id="edit-valor-diaria" step="0.50" min="0" value="${parseFloat(m.valor_diaria_padrao || 425).toFixed(2)}" required ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border-2 border-pf-gold rounded-lg p-2 text-amber-300 font-extrabold">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Deslocamento</label>
+                <select id="edit-deslocamento" ${isGerencial ? "disabled" : ""} class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+                  ${renderDeslocamentoOptions(deslocNorm)}
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Passagens: R$</label>
+                <input type="number" id="edit-passagens" step="0.01" min="0" value="${valorPassagemInicial}" ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sky-300 font-bold">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Total das Diárias: R$</label>
+                <div id="edit-total-diarias" class="w-full bg-slate-900/70 border border-slate-800 rounded-lg p-2 text-emerald-400 font-extrabold">${formatMoney(m.total_custo_diarias)}</div>
+              </div>
+            </div>
+
+            <div id="edit-isencao-aviso" class="hidden p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/60 text-amber-200 text-[11px] font-medium"></div>
+
+            <!-- Status, PCDP, ALOC/SAT, OM -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Status da Missão</label>
+                <select id="edit-status" ${(isGerencial || statusTravadoCadastrador) ? "disabled" : ""} class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
+                  ${renderOfficialStatusOptions(m.status_atual, "", true)}
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">N° PCDP</label>
+                <input type="text" id="edit-pcdp" value="${escapeHtml(m.numero_pcdp || "")}" placeholder="Ex: PCDP-000101/26" ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">N° ALOC/SAT</label>
+                <input type="text" id="edit-sat" value="${escapeHtml(m.numero_sat || "")}" placeholder="Ex: SAT-2026-0001" ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">N° OM</label>
+                <input type="text" id="edit-om" value="${escapeHtml(m.numero_om || "")}" placeholder="Ex: OM-2026-0001" ${isGerencial ? "disabled" : ""}
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+              </div>
+            </div>
+          </div>
+
+          <!-- BARRA INFERIOR DE TOTAIS FINANCEIROS (MANTIDA CONFORME PÁGINA 3) + BOTÃO SALVAR -->
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+            <div>
+              <p class="text-slate-400 uppercase font-semibold text-[10px]">Custo Geral Desta Missão</p>
+              <p id="edit-resumo-geral" class="text-lg font-extrabold text-emerald-400">${formatMoney(m.total_custo_geral)}</p>
+            </div>
+            <div class="flex items-center space-x-6 text-right">
+              <div>
+                <p class="text-slate-500 text-[10px]">Subtotal Diárias:</p>
+                <p id="edit-resumo-diarias" class="font-bold text-amber-300">${formatMoney(m.total_custo_diarias)}</p>
+              </div>
+              <div>
+                <p class="text-slate-500 text-[10px]">Subtotal Passagens:</p>
+                <p id="edit-resumo-passagens" class="font-bold text-blue-300">${formatMoney(m.total_custo_passagens)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">Fechar</button>
+            ${!isGerencial ? `
+              <button type="submit" class="px-6 py-2 bg-gradient-to-r from-pf-gold to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-slate-950 font-extrabold rounded-xl shadow-lg uppercase tracking-wider">
+                SALVAR
+              </button>
+            ` : ""}
+          </div>
+        </form>
+      `;
+
+      // Eventos de interação ao vivo
+      const unidSearch = document.getElementById("edit-unidade-search");
+      const unidSel = document.getElementById("edit-unidade-destino");
+      if (unidSearch) {
+        unidSearch.addEventListener("input", () => filtrarUnidadeDestinoSelect("edit-unidade-search", "edit-unidade-destino", unidades));
+      }
+      if (unidSel) {
+        unidSel.addEventListener("change", () => {
+          const opt = unidSel.options[unidSel.selectedIndex];
+          if (opt && opt.value) {
+            const cid = opt.getAttribute("data-cidade");
+            const dia = opt.getAttribute("data-diaria");
+            if (cid) document.getElementById("edit-cidade").value = cid;
+            if (dia) document.getElementById("edit-valor-diaria").value = parseFloat(dia).toFixed(2);
+          }
+          atualizarCalculoAoVivoRecrutamento("edit");
+        });
+      }
+
+      const trocarSrv = document.getElementById("edit-trocar-servidor");
+      if (trocarSrv) {
+        trocarSrv.addEventListener("change", () => {
+          const s = (ACTIVE_SERVERS_MODAL || []).find(x => x.matricula === trocarSrv.value);
+          if (s) {
+            document.getElementById("edit-srv-nome").value = s.nome_completo || "";
+            document.getElementById("edit-srv-cpf").value = s.cpf || "";
+            document.getElementById("edit-srv-cargo").value = s.cargo_sigla || "";
+            document.getElementById("edit-srv-matricula").value = s.matricula || "";
+            document.getElementById("edit-srv-lotacao").value = s.unidade_sigla || "";
+            document.getElementById("edit-srv-telefone").value = s.telefone_celular || "";
+            document.getElementById("edit-srv-login").value = s.login_rede || "";
+            document.getElementById("edit-header-servidor-nome").textContent = s.nome_completo || "";
+            document.getElementById("edit-header-matricula").textContent = s.matricula || "-";
+            atualizarCalculoAoVivoRecrutamento("edit");
+          }
+        });
+      }
+
+      const deslSel = document.getElementById("edit-deslocamento");
+      if (deslSel) {
+        deslSel.addEventListener("change", () => {
+          atualizarPassagensPorDeslocamento("edit-deslocamento", "edit-passagens");
+          atualizarCalculoAoVivoRecrutamento("edit");
+        });
+      }
+
+      ["edit-dt-inicio", "edit-dt-termino", "edit-valor-diaria", "edit-passagens", "edit-srv-lotacao"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("input", () => atualizarCalculoAoVivoRecrutamento("edit"));
+        if (el) el.addEventListener("change", () => atualizarCalculoAoVivoRecrutamento("edit"));
+      });
+
+      atualizarPassagensPorDeslocamento("edit-deslocamento", "edit-passagens");
+      atualizarCalculoAoVivoRecrutamento("edit");
+
+      document.getElementById("form-gerenciar-individual").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (isGerencial) return;
+
+        const targetMat = document.getElementById("edit-srv-matricula").value.trim();
+        const srvPayload = {
+          nome_completo: document.getElementById("edit-srv-nome").value.trim().toUpperCase(),
+          cpf: document.getElementById("edit-srv-cpf").value.trim(),
+          cargo_sigla: document.getElementById("edit-srv-cargo").value,
+          unidade_sigla: document.getElementById("edit-srv-lotacao").value,
+          telefone_celular: document.getElementById("edit-srv-telefone").value.trim(),
+          login_rede: document.getElementById("edit-srv-login").value.trim()
+        };
+
+        const deslVal = normalizeDeslocamentoCode(document.getElementById("edit-deslocamento").value);
+        const passVal = deslVal === "AEREO" ? (parseFloat(document.getElementById("edit-passagens").value || 0) || 0) : 0.0;
+        const novoStatus = document.getElementById("edit-status").value;
+
+        const missaoPayload = {
+          missionario_matricula: targetMat || null,
+          observacoes: document.getElementById("edit-missao-obs").value.trim(),
+          data_inicio: document.getElementById("edit-dt-inicio").value,
+          data_termino: document.getElementById("edit-dt-termino").value,
+          unidade_destino: document.getElementById("edit-unidade-destino").value || "",
+          localidade_descricao: document.getElementById("edit-cidade").value.trim(),
+          setor_destino: document.getElementById("edit-setor").value || "",
+          valor_diaria_padrao: parseFloat(document.getElementById("edit-valor-diaria").value || 0),
+          meio_transporte: deslVal,
+          custo_estimado_passagens: passVal,
+          numero_pcdp: document.getElementById("edit-pcdp").value.trim(),
+          numero_sat: document.getElementById("edit-sat").value.trim(),
+          numero_om: document.getElementById("edit-om").value.trim()
+        };
+
+        if (!statusTravadoCadastrador && novoStatus && normStatusKey(novoStatus) !== currStatusKey) {
+          missaoPayload.status_atual = novoStatus;
+        }
+
+        try {
+          if (targetMat) {
+            await apiFetch(`/api/servidores/${encodeURIComponent(targetMat)}`, {
+              method: "PUT",
+              body: JSON.stringify(srvPayload)
+            });
+          }
+          await apiFetch(`/api/missoes/${m.id}`, {
+            method: "PUT",
+            body: JSON.stringify(missaoPayload)
+          });
+          alert("Dados salvos com sucesso!");
+          await openMissaoDetail(m.id);
+          refreshUnderlyingViewIfNeeded();
+        } catch (err) {
+          alert(`Erro ao salvar alterações: ${err.message}`);
+        }
+      });
+
+      return;
+    }
+
+    // ==========================================================================
+    // MODO EQUIPE (SECUNDÁRIO / HISTÓRICO)
+    // ==========================================================================
+    const stKey = normStatusKey(m.status_atual);
     modalContent.innerHTML = `
       <div class="space-y-6">
-        <!-- Modal Header -->
         <div class="flex items-start justify-between border-b border-slate-800 pb-4">
           <div>
             <div class="flex items-center flex-wrap gap-2">
-              <span class="badge-status badge-${m.modalidade || 'INDIVIDUAL'}">${m.modalidade || 'INDIVIDUAL'}</span>
+              <span class="badge-status badge-${m.modalidade || 'EQUIPE'}">${m.modalidade || 'EQUIPE'}</span>
               <span class="badge-status ${getStatusBadgeClass(m.status_atual)}">${formatStatusLabel(m.status_atual)}</span>
             </div>
-            <h2 class="text-lg font-bold text-white mt-1.5">${m.titulo}</h2>
+            <h2 class="text-lg font-bold text-white mt-1.5">${escapeHtml(m.titulo)}</h2>
             <p class="text-xs text-slate-400 mt-0.5">
-              ${m.tipo_missao} • Solicitante: <strong class="text-slate-200">${m.unidade_solicitante}</strong> • Destino: <strong class="text-slate-200">${m.unidade_destino || m.localidade_descricao}</strong>
-              ${m.setor_destino ? ` • Setor: <strong class="text-pf-gold">${m.setor_destino}</strong>` : ''}
-              ${m.meio_transporte ? ` • Transporte: <strong class="text-sky-300">${m.meio_transporte === 'AEREO' ? '✈️ Aéreo' : (m.meio_transporte === 'PROPRIO' ? '🚙 Próprio' : '🚗 Terrestre')}</strong>` : ''}
+              ${escapeHtml(m.tipo_missao)} • Destino: <strong class="text-slate-200">${escapeHtml(m.unidade_destino || m.localidade_descricao)}</strong>
+              ${m.setor_destino ? ` • Setor: <strong class="text-pf-gold">${escapeHtml(m.setor_destino)}</strong>` : ''}
+              • Transporte: <strong class="text-sky-300">${formatTransporteText(m.meio_transporte)}</strong>
               ${m.custo_estimado_passagens ? ` • Passagens: <strong class="text-sky-300">${formatMoney(m.custo_estimado_passagens)}</strong>` : ''}
             </p>
           </div>
@@ -1794,148 +2362,87 @@ async function openMissaoDetail(codigoOuId) {
           </button>
         </div>
 
-        ${isGerencial ? `
-          <div class="p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl text-blue-300 text-xs flex items-center space-x-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span><strong>Modo Consulta Gerencial:</strong> Seu perfil possui acesso irrestrito para visualização e acompanhamento de relatórios, sem permissão de alteração de dados ou aprovações.</span>
-          </div>
-        ` : ''}
-
-        <!-- Informações Administrativas & Policiais Designados -->
-        <div class="grid grid-cols-1 ${isIndividual ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-3 bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-xs">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-xs">
           <div>
             <p class="text-slate-500 uppercase font-semibold text-[10px]">Período Oficial</p>
             <p class="font-bold text-white mt-0.5">${formatDateBR(m.data_inicio)} a ${formatDateBR(m.data_termino)} (${m.total_dias} dias)</p>
           </div>
-          ${!isIndividual ? `
-            <div>
-              <p class="text-slate-500 uppercase font-semibold text-[10px]">Chefe da Missão / Responsável</p>
-              <p class="font-bold text-slate-200 mt-0.5">
-                ${(m.responsavel_nome || m.responsavel_nome_guerra)
-                  ? `${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)} <span class="text-[10px] text-slate-400">(${m.responsavel_matricula || ''})</span>`
-                  : 'Não definido'}
-              </p>
-            </div>
-          ` : ''}
           <div>
-            <p class="text-slate-500 uppercase font-semibold text-[10px]">${isIndividual ? 'Policial Missionário' : 'Missionário Principal'}</p>
-            <p class="font-bold ${isIndividual ? 'text-fuchsia-400' : 'text-slate-200'} mt-0.5">
-              ${(m.missionario_nome || m.missionario_nome_guerra)
-                ? `${formatServidorDisplayHtml(m.missionario_nome_guerra, m.missionario_nome, m.missionario_matricula)} <span class="text-[10px] text-slate-400">(${m.missionario_matricula || ''})</span>`
-                : (isIndividual ? 'Pendente' : 'Missão Coletiva (Equipe)')}
+            <p class="text-slate-500 uppercase font-semibold text-[10px]">Chefe da Missão / Responsável</p>
+            <p class="font-bold text-slate-200 mt-0.5">
+              ${(m.responsavel_nome || m.responsavel_nome_guerra)
+                ? `${formatServidorDisplayHtml(m.responsavel_nome_guerra, m.responsavel_nome, m.responsavel_matricula)} <span class="text-[10px] text-slate-400">(${escapeHtml(m.responsavel_matricula || '')})</span>`
+                : 'Não definido'}
             </p>
           </div>
           <div>
             <p class="text-slate-500 uppercase font-semibold text-[10px]">Ordem de Missão (OM) / SCDP</p>
-            <p class="font-mono text-slate-200 mt-0.5">${m.numero_om || 'Não emitida'} / ${m.numero_pcdp || 'Pendente'}</p>
+            <p class="font-mono text-slate-200 mt-0.5">${escapeHtml(m.numero_om || 'Não emitida')} / ${escapeHtml(m.numero_pcdp || 'Pendente')}</p>
           </div>
         </div>
 
-        ${m.justificativa ? `
-          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-xs">
-            <span class="text-[10px] uppercase font-semibold text-slate-500 block mb-0.5">Justificativa / Observações</span>
-            <p class="text-slate-300">${m.justificativa}</p>
+        <div class="bg-gradient-to-r from-pf-900/60 to-slate-950 border border-pf-gold/50 rounded-2xl p-4 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Valor da Diária</h3>
           </div>
-        ` : ''}
-
-        <!-- CAMPO EDITÁVEL DO VALOR DA DIÁRIA DA MISSÃO -->
-        <div class="bg-gradient-to-r from-pf-900/60 to-slate-950 border border-pf-gold/50 rounded-2xl p-5 shadow-lg">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div class="flex items-center space-x-2">
-                <svg class="w-5 h-5 text-pf-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                <h3 class="text-sm font-bold text-white uppercase tracking-wider">Campo Editável da Diária Desta Missão</h3>
-              </div>
-              <p class="text-xs text-slate-300 mt-1">Altere o valor unitário da diária específica desta missão. Todos os policiais serão recalculados!</p>
+          <div class="flex items-center space-x-2">
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-xs text-slate-400 font-bold">R$</span>
+              <input type="number" id="input-diaria-missao" step="0.50" min="0" value="${m.valor_diaria_padrao}"
+                     ${isGerencial ? 'disabled' : ''}
+                     class="w-32 bg-slate-900 border-2 border-pf-gold rounded-xl pl-8 pr-3 py-2 text-sm font-extrabold text-amber-300">
             </div>
-
-            <div class="flex items-center space-x-2">
-              <div class="relative">
-                <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-xs text-slate-400 font-bold">R$</span>
-                <input type="number" id="input-diaria-missao" step="0.50" min="0" value="${m.valor_diaria_padrao}"
-                       ${isGerencial ? 'disabled' : ''}
-                       class="w-32 bg-slate-900 border-2 border-pf-gold rounded-xl pl-8 pr-3 py-2 text-sm font-extrabold text-amber-300 focus:outline-none focus:ring-2 focus:ring-yellow-400">
-              </div>
-              ${!isGerencial ? `
-                <button onclick="salvarNovoValorDiaria('${m.id}')"
-                        class="bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow transition flex items-center space-x-1">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                  <span>Recalcular Diárias</span>
-                </button>
-              ` : ''}
-            </div>
+            ${!isGerencial ? `
+              <button onclick="salvarNovoValorDiaria('${m.id}')" class="bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow transition">
+                Recalcular Diárias
+              </button>
+            ` : ''}
           </div>
         </div>
 
-        <!-- Transições de Ciclo de Vida (Status Oficiais Unificados) -->
         <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
           <div class="flex items-center space-x-2">
-            <span class="text-xs text-slate-400 font-semibold uppercase">Status Atual:</span>
+            <span class="text-xs text-slate-400 font-semibold uppercase">Status:</span>
             <span class="badge-status ${getStatusBadgeClass(m.status_atual)} text-[10px]">${formatStatusLabel(m.status_atual)}</span>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             ${isGerencial ? `
               <span class="text-xs text-slate-500 italic">Transição bloqueada para perfil gerencial</span>
             ` : `
-              <!-- Seletor Único com os 11 Status Oficiais -->
               <div class="flex items-center space-x-1">
                 <select id="sel-mudar-status-oficial" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
-                  ${renderOfficialStatusOptions(m.status_atual, "")}
+                  ${renderOfficialStatusOptions(m.status_atual, "", true)}
                 </select>
                 <button onclick="mudarStatusMissaoOficial('${m.id}')" class="px-2.5 py-1 bg-pf-700 hover:bg-pf-600 text-white rounded-lg text-xs font-semibold transition">
                   Alterar Status
                 </button>
               </div>
-
-              <!-- Botões rápidos de fluxo -->
-              ${stKey === 'RASCUNHO' || stKey === 'INDICADO' ? `<button onclick="mudarStatusMissao('${m.id}', 'Pendente de Alocação')" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold">Alocar</button>` : ''}
-              ${stKey === 'PENDENTE DE ALOCACAO' ? `<button onclick="mudarStatusMissao('${m.id}', 'SAT pendente')" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold">Solicitar SAT</button>` : ''}
-              ${stKey === 'SAT PENDENTE' || stKey === 'SAT REITERADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'SAT Atendida')" class="px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold">Atender SAT</button>` : ''}
-              ${stKey === 'SAT ATENDIDA' || stKey === 'APROVADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'OM EMITIDA')" class="px-3 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold">Emitir OM</button>` : ''}
-              ${stKey === 'OM EMITIDA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP CADASTRADA')" class="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded-lg text-xs font-semibold">Cadastrar PCDP</button>` : ''}
-              ${stKey === 'PCDP CADASTRADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP ENCAMINHADA')" class="px-3 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold">Encaminhar PCDP</button>` : ''}
-              ${stKey === 'PCDP ENCAMINHADA' ? `<button onclick="mudarStatusMissao('${m.id}', 'PCDP PRESTAR CONTAS')" class="px-3 py-1 bg-orange-700 hover:bg-orange-600 text-white rounded-lg text-xs font-semibold">Prestar Contas</button>` : ''}
-              ${stKey === 'PCDP PRESTAR CONTAS' ? `<button onclick="mudarStatusMissao('${m.id}', 'Concluído')" class="px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded-lg text-xs font-semibold">Concluir Missão</button>` : ''}
               ${stKey !== 'CANCELADA' && stKey !== 'CONCLUIDO' ? `<button onclick="mudarStatusMissao('${m.id}', 'CANCELADA')" class="px-2 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 rounded-lg text-xs font-semibold">Cancelar</button>` : ''}
             `}
           </div>
         </div>
 
-        <!-- Participants Table -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
-            <div>
-              <h3 class="text-sm font-bold text-white uppercase tracking-wider">
-                ${isIndividual ? 'Missionário Único Designado' : `Servidores Designados (${m.participantes.length})`}
-              </h3>
-              <p class="text-xs text-slate-400">
-                ${isIndividual ? 
-                  'Missão individual vinculada exclusivamente ao policial missionário designado com cálculo automático de diárias.' : 
-                  'Relação de policiais, meios de transporte, localizador e cálculo de diárias.'}
-              </p>
-            </div>
-            ${(!isGerencial && !isIndividual) ? `
-              <button onclick="toggleFormNovoParticipante()" class="bg-pf-700 hover:bg-pf-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs uppercase tracking-wider transition flex items-center space-x-1">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
-                <span>Adicionar Servidor</span>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Servidores Designados (${m.participantes.length})</h3>
+            ${!isGerencial ? `
+              <button onclick="toggleFormNovoParticipante()" class="bg-pf-700 hover:bg-pf-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs uppercase tracking-wider transition">
+                + Adicionar Servidor
               </button>
             ` : ''}
           </div>
 
-          <!-- Add Participant Form (Only for EQUIPE) -->
           <div id="form-novo-participante" class="hidden bg-slate-950 p-4 rounded-xl border border-pf-600/50 space-y-3">
-            <h4 class="text-xs font-bold text-pf-gold uppercase">Designar Novo Servidor para esta Missão</h4>
+            <h4 class="text-xs font-bold text-pf-gold uppercase">Designar Novo Servidor</h4>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div>
                 <div class="flex items-center justify-between mb-1">
                   <label class="block text-slate-400">Servidor Policial</label>
                   <span id="count-busca-part" class="text-[10px] text-pf-gold font-semibold">${servidores.length} disponíveis</span>
                 </div>
-                <input type="text" id="filtro-busca-part" oninput="updateHotServerSelect('filtro-busca-part', 'part-matricula', 'count-busca-part', 'Selecione o servidor...')" placeholder="🔍 Buscar nome de guerra, nome, matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 mb-1 text-xs text-white">
+                <input type="text" id="filtro-busca-part" oninput="updateHotServerSelect('filtro-busca-part', 'part-matricula', 'count-busca-part', 'Selecione o servidor...')" placeholder="🔍 Buscar nome, matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 mb-1 text-xs text-white">
                 <select id="part-matricula" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-                  ${servidores.map(s => `
-                    <option value="${s.matricula}">${formatServidorOptionText(s)}</option>
-                  `).join('')}
+                  ${servidores.map(s => `<option value="${s.matricula}">${formatServidorOptionText(s)}</option>`).join('')}
                 </select>
                 <div id="hot-preview-part-matricula" class="hidden mt-1 space-y-1 max-h-28 overflow-y-auto bg-slate-900/90 border border-slate-700 rounded-lg p-1.5"></div>
               </div>
@@ -1948,11 +2455,10 @@ async function openMissaoDetail(codigoOuId) {
               <div>
                 <label class="block text-slate-400 mb-1">Meio de Transporte</label>
                 <select id="part-transporte" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-                  <option value="AEREO">Aéreo (Passagem Comercial)</option>
-                  <option value="VIATURA_OFICIAL">Viatura Oficial PF</option>
-                  <option value="FLUVIAL">Fluvial (Barco/Lancha PF)</option>
-                  <option value="MISTO">Misto</option>
-                  <option value="OUTRO">Outro Deslocamento</option>
+                  <option value="NAO_DEFINIDO">NÃO DEFINIDO</option>
+                  <option value="AEREO">AÉREO</option>
+                  <option value="TERRESTRE">TERRESTRE</option>
+                  <option value="PROPRIO">PRÓPRIO</option>
                 </select>
               </div>
               <div>
@@ -1986,7 +2492,6 @@ async function openMissaoDetail(codigoOuId) {
             </div>
           </div>
 
-          <!-- Participants Table -->
           <div class="overflow-x-auto bg-slate-950/80 rounded-xl border border-slate-800 shadow">
             <table class="w-full text-left text-xs">
               <thead class="text-slate-400 border-b border-slate-800 uppercase font-semibold text-[10px]">
@@ -1994,48 +2499,32 @@ async function openMissaoDetail(codigoOuId) {
                   <th class="py-2.5 px-3">Servidor</th>
                   <th class="py-2.5 px-3">Papel / Transporte</th>
                   <th class="py-2.5 px-3">Período</th>
-                  <th class="py-2.5 px-3">Diárias (Qtd)</th>
-                  <th class="py-2.5 px-3">Valor Unit. (R$)</th>
+                  <th class="py-2.5 px-3">Diárias</th>
                   <th class="py-2.5 px-3">Total Diárias</th>
                   <th class="py-2.5 px-3">Passagem</th>
                   <th class="py-2.5 px-3">Custo Total</th>
-                  ${!isGerencial && m.modalidade !== 'INDIVIDUAL' ? '<th class="py-2.5 px-3 text-right">Ação</th>' : ''}
+                  ${!isGerencial ? '<th class="py-2.5 px-3 text-right">Ação</th>' : ''}
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-800/60">
                 ${m.participantes.map(p => `
                   <tr class="hover:bg-slate-800/40 transition">
                     <td class="py-3 px-3">
-                      <p class="font-bold text-white">[${p.servidor_cargo || ''}] ${formatServidorDisplayHtml(p.servidor_nome_guerra, p.servidor_nome, p.servidor_matricula)}</p>
-                      <p class="text-[11px] text-slate-400">Matrícula: ${p.servidor_matricula} • Lotação: ${p.servidor_lotacao || '-'}</p>
+                      <p class="font-bold text-white">${escapeHtml(p.servidor_nome || p.servidor_matricula)}</p>
+                      <p class="text-[11px] text-slate-400">Matrícula: ${escapeHtml(p.servidor_matricula)} • Lotação: ${escapeHtml(p.servidor_lotacao || '-')}</p>
                     </td>
                     <td class="py-3 px-3">
-                      <p class="font-medium text-slate-200">${p.papel}</p>
-                      <p class="text-[11px] text-slate-400">${p.meio_transporte} ${p.localizador_aereo ? `• Loc: <span class="font-mono text-pf-gold font-bold">${p.localizador_aereo}</span>` : ''}</p>
+                      <p class="font-medium text-slate-200">${escapeHtml(p.papel)}</p>
+                      <p class="text-[11px] text-slate-400">${formatTransporteText(p.meio_transporte)}</p>
                     </td>
-                    <td class="py-3 px-3 text-slate-300">
-                      ${formatDateBR(p.data_apresentacao)} a ${formatDateBR(p.data_retorno)}
-                      <span class="text-slate-500">(${p.dias_participacao}d)</span>
-                    </td>
-                    <td class="py-3 px-3">
-                      ${p.is_missao_sede ? 
-                        `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-400">SEDE (0,0)</span>` : 
-                        `<span class="font-bold text-amber-300">${p.qtd_diarias} diárias</span>`
-                      }
-                    </td>
-                    <td class="py-3 px-3 font-semibold text-slate-300">
-                      ${p.is_missao_sede ? 'R$ 0,00' : formatMoney(p.valor_diaria_unitaria)}
-                    </td>
-                    <td class="py-3 px-3 font-bold ${p.is_missao_sede ? 'text-slate-400' : 'text-amber-400'}">
-                      ${formatMoney(p.valor_total_diarias)}
-                    </td>
+                    <td class="py-3 px-3 text-slate-300">${formatDateBR(p.data_apresentacao)} a ${formatDateBR(p.data_retorno)} (${p.dias_participacao}d)</td>
+                    <td class="py-3 px-3 font-bold text-amber-300">${p.is_missao_sede ? 'SEDE (0,0)' : `${p.qtd_diarias} diárias`}</td>
+                    <td class="py-3 px-3 font-bold text-amber-400">${formatMoney(p.valor_total_diarias)}</td>
                     <td class="py-3 px-3 text-slate-300">${formatMoney(p.valor_passagem_aerea)}</td>
                     <td class="py-3 px-3 font-extrabold text-emerald-400">${formatMoney(p.custo_total_servidor)}</td>
-                    ${!isGerencial && m.modalidade !== 'INDIVIDUAL' ? `
+                    ${!isGerencial ? `
                       <td class="py-3 px-3 text-right">
-                        <button onclick="removerParticipante('${m.id}', '${p.id}')" class="p-1 text-slate-500 hover:text-red-400 rounded transition" title="Remover participante">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                        </button>
+                        <button onclick="removerParticipante('${m.id}', '${p.id}')" class="p-1 text-slate-500 hover:text-red-400 rounded transition" title="Remover participante">✕</button>
                       </td>
                     ` : ''}
                   </tr>
@@ -2045,7 +2534,6 @@ async function openMissaoDetail(codigoOuId) {
           </div>
         </div>
 
-        <!-- Financial Summary Banner of Mission -->
         <div class="flex items-center justify-between bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
           <div>
             <p class="text-slate-400 uppercase font-semibold text-[10px]">Custo Geral Desta Missão</p>
@@ -2065,7 +2553,7 @@ async function openMissaoDetail(codigoOuId) {
       </div>
     `;
   } catch (err) {
-    modalContent.innerHTML = `<div class="p-6 text-red-300 text-xs">Erro ao carregar missão: ${err.message}</div>`;
+    modalContent.innerHTML = renderApiErrorBox("Erro ao carregar missão", err, `openMissaoDetail('${codigoOuId}')`);
   }
 }
 
@@ -2176,308 +2664,516 @@ async function removerParticipante(missaoId, partId) {
   }
 }
 
-// Modal Nova Missão (Com suporte a Missão Individual como padrão, transporte, passagens, múltiplos servidores e sub-modal)
+// Modal NOVO RECRUTAMENTO ("O ideal para missão individual", com suporte secundário a EQUIPE)
 async function openModalNovaMissao() {
   const modalContainer = document.getElementById("modal-container");
   const modalContent = document.getElementById("modal-content");
+  modalContent.innerHTML = `<div class="p-8 text-center text-slate-400">Carregando formulário de recrutamento...</div>`;
   modalContainer.classList.remove("hidden");
 
-  const unidades = METADATA_CACHE.unidades.length ? METADATA_CACHE.unidades : await apiFetch("/api/missoes/meta/unidades");
-  const tipos = METADATA_CACHE.tipos.length ? METADATA_CACHE.tipos : await apiFetch("/api/missoes/meta/tipos");
-  const setores = METADATA_CACHE.setores.length ? METADATA_CACHE.setores : await apiFetch("/api/missoes/meta/setores").catch(() => []);
-  const servidores = await apiFetch("/api/servidores?ativo=true");
-  ACTIVE_SERVERS_MODAL = servidores;
-  window.SELECTED_EQUIPE_MATRICULAS = new Set();
-  const diariaBase = SYSTEM_CONFIG.valor_diaria_padrao || "425.00";
+  try {
+    const unidades = METADATA_CACHE.unidades.length ? METADATA_CACHE.unidades : await apiFetch("/api/missoes/meta/unidades");
+    const tipos = METADATA_CACHE.tipos.length ? METADATA_CACHE.tipos : await apiFetch("/api/missoes/meta/tipos");
+    const cargos = METADATA_CACHE.cargos.length ? METADATA_CACHE.cargos : await apiFetch("/api/missoes/meta/cargos");
+    const setores = METADATA_CACHE.setores.length ? METADATA_CACHE.setores : await apiFetch("/api/missoes/meta/setores").catch(() => []);
+    const servidores = await apiFetch("/api/servidores?ativo=true");
+    ACTIVE_SERVERS_MODAL = servidores;
+    window.SELECTED_EQUIPE_MATRICULAS = new Set();
+    const diariaBase = SYSTEM_CONFIG.valor_diaria_padrao || "425.00";
 
-  modalContent.innerHTML = `
-    <div class="space-y-4">
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-        <div>
-          <h2 class="text-base font-bold text-white">Abertura de Nova Missão Institucional</h2>
-          <p class="text-xs text-slate-400">Padrão Individual (1 servidor) ou Coletiva (Equipe com múltiplos servidores)</p>
-        </div>
-        <button onclick="closeModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
-      </div>
-
-      <form id="form-criar-missao" class="space-y-3 text-xs">
-        <!-- MODALIDADE SELETOR (INDIVIDUAL É O PADRÃO CONFORME ESPECIFICAÇÃO) -->
-        <div class="bg-slate-950 p-3 rounded-xl border border-pf-gold/50 flex flex-col md:flex-row md:items-center justify-between gap-2 shadow">
+    modalContent.innerHTML = `
+      <div class="space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div>
-            <span class="font-bold text-white uppercase text-xs">Modalidade Operacional da Missão:</span>
-            <p class="text-[11px] text-slate-400" id="modalidade-hint">Missão Individual como padrão (1 policial missionário) ou Missão em Equipe (múltiplos servidores).</p>
+            <h2 class="text-lg font-extrabold text-white tracking-tight uppercase">NOVO RECRUTAMENTO</h2>
+            <p class="text-xs text-slate-400">O ideal para missão individual • Preenchimento rápido com cálculo automático</p>
           </div>
-          <div class="flex items-center space-x-4">
-            <label class="flex items-center space-x-1.5 cursor-pointer">
-              <input type="radio" name="nova-modalidade" value="INDIVIDUAL" checked onchange="toggleModalidadeFields()" class="text-pf-gold focus:ring-0">
-              <span class="font-bold text-fuchsia-300">👤 Individual (Padrão)</span>
-            </label>
-            <label class="flex items-center space-x-1.5 cursor-pointer">
-              <input type="radio" name="nova-modalidade" value="EQUIPE" onchange="toggleModalidadeFields()" class="text-pf-gold focus:ring-0">
-              <span class="font-bold text-blue-300">👥 Equipe Policial</span>
-            </label>
-          </div>
+          <button type="button" onclick="closeModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div class="md:col-span-2">
-            <label class="block text-slate-400 mb-1">Título da Missão</label>
-            <input type="text" id="nova-titulo" placeholder="Ex: Operação Fronteira Segura 2026 / Diligência Específica" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Status Inicial da Missão</label>
-            <select id="nova-status" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
-              ${renderOfficialStatusOptions("Indicado", "")}
-            </select>
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Tipo de Missão</label>
-            <select id="nova-tipo" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-              ${tipos.map(t => `<option value="${t.nome}">${t.nome}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Unidade Solicitante (PB no topo)</label>
-            <select id="nova-solicitante" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-              ${unidades.map(u => `<option value="${u.sigla}">${u.sigla} - ${u.nome_extenso}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Unidade de Destino</label>
-            <select id="nova-destino" onchange="autoAjustarDiariaPorDestino()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-              <option value="">Nenhuma / Área Externa</option>
-              ${unidades.map(u => `<option value="${u.sigla}">${u.sigla} - ${u.nome_extenso}</option>`).join('')}
-            </select>
-            <p id="badge-destino-diaria" class="hidden text-[10px] text-pf-gold font-semibold mt-1"></p>
-          </div>
-
-          <!-- MEIO DE TRANSPORTE E ESTIMATIVA DE PASSAGENS AÉREAS -->
-          <div>
-            <label class="block text-slate-400 mb-1">Meio de Transporte</label>
-            <select id="nova-transporte" onchange="toggleNovaMissaoTransporte()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
-              <option value="AEREO">✈️ Aéreo (Comercial)</option>
-              <option value="TERRESTRE">🚗 Terrestre / Viatura Oficial</option>
-              <option value="PROPRIO">🚙 Veículo Próprio</option>
-            </select>
-          </div>
-
-          <div id="container-custo-passagens">
-            <label class="block text-slate-400 mb-1">Estimativa Custo Passagens Aéreas (R$)</label>
-            <input type="number" id="nova-custo-passagens" step="10.00" value="1500.00" class="w-full bg-slate-900 border-2 border-sky-500 rounded-lg p-2 text-sky-300 font-bold">
-          </div>
-
-          <!-- SETOR DE DESTINO DA SR/PB -->
-          <div>
-            <label class="block text-slate-400 mb-1">Setor de Destino (SR/PF/PB)</label>
-            <select id="nova-setor" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-              <option value="">Nenhum / Não aplicável</option>
-              ${setores.map(s => `<option value="${s.sigla}">${s.sigla} - ${s.nome}</option>`).join('')}
-            </select>
-          </div>
-
-          <div class="md:col-span-3">
-            <label class="block text-slate-400 mb-1">Localidade de Execução</label>
-            <input type="text" id="nova-localidade" placeholder="Ex: Superintendência Regional da PF em João Pessoa/PB" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Data de Início</label>
-            <input type="date" id="nova-dt-inicio" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Data de Término</label>
-            <input type="date" id="nova-dt-termino" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-          </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Valor Diária Unitária Desta Missão (R$)</label>
-            <input type="number" id="nova-diaria-padrao" step="0.50" value="${diariaBase}" required class="w-full bg-slate-900 border-2 border-pf-gold rounded-lg p-2 text-amber-300 font-extrabold">
-          </div>
-
-          <!-- CHEFE / RESPONSÁVEL (VISÍVEL APENAS EM MISSÕES DE EQUIPE) -->
-          <div id="container-nova-responsavel" class="hidden md:col-span-3">
-            <div class="flex items-center justify-between mb-1">
-              <label class="block text-slate-300 font-semibold">Chefe da Missão / Autoridade Solicitante (Equipe)</label>
-              <span id="count-busca-responsavel" class="text-[10px] text-pf-gold font-semibold">${servidores.length} disponíveis</span>
+        <form id="form-criar-missao" class="space-y-4 text-xs">
+          <!-- MODALIDADE SELETOR (INDIVIDUAL É O PADRÃO) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span class="font-bold text-slate-300 uppercase text-[11px]">Modalidade:</span>
+            <div class="flex items-center space-x-5">
+              <label class="flex items-center space-x-1.5 cursor-pointer">
+                <input type="radio" name="nova-modalidade" value="INDIVIDUAL" checked onchange="toggleModalidadeFields()" class="text-pf-gold focus:ring-0">
+                <span class="font-bold text-fuchsia-300">👤 Individual (Padrão)</span>
+              </label>
+              <label class="flex items-center space-x-1.5 cursor-pointer">
+                <input type="radio" name="nova-modalidade" value="EQUIPE" onchange="toggleModalidadeFields()" class="text-pf-gold focus:ring-0">
+                <span class="font-bold text-blue-300">👥 Equipe Policial</span>
+              </label>
             </div>
-            <input type="text" id="filtro-busca-responsavel" oninput="filtrarOpcoesResponsavel()" placeholder="🔍 Pesquisar chefe por nome de guerra, nome, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 mb-1 text-xs text-white">
-            <select id="nova-responsavel" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
-              <option value="">Selecione o chefe da missão...</option>
-              ${servidores.map(s => `<option value="${s.matricula}">${formatServidorOptionText(s)}</option>`).join('')}
-            </select>
-            <div id="hot-preview-nova-responsavel" class="hidden mt-1 space-y-1 max-h-32 overflow-y-auto bg-slate-900/95 border border-slate-700 rounded-lg p-1.5"></div>
           </div>
 
-          <!-- CONTAINER MISSÃO INDIVIDUAL (PADRÃO) -->
-          <div id="container-nova-missionario" class="md:col-span-3">
-            <div class="flex items-center justify-between mb-1">
-              <div class="flex items-center space-x-2">
-                <label class="block text-fuchsia-300 font-bold" id="label-nova-missionario">* Policial Missionário Designado (Individual)</label>
-                <span id="count-busca-missionario" class="text-[10px] text-pf-gold font-semibold">(${servidores.length} disponíveis)</span>
+          <!-- BLOCO 1 INDIVIDUAL: DADOS DO SERVIDOR (2 COLUNAS) -->
+          <div id="container-nr-servidor-individual" class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <h3 class="text-xs font-bold text-pf-gold uppercase tracking-wider">Dados do Servidor</h3>
+              <div class="flex flex-wrap items-center gap-2 flex-1 md:justify-end">
+                <input type="text" id="nr-busca-servidor" placeholder="🔍 Buscar servidor cadastrado (nome, CPF, matrícula)..."
+                       class="w-full md:w-64 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:border-pf-gold focus:outline-none">
+                <select id="nr-select-servidor" class="w-full md:w-64 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
+                  <option value="">Selecionar servidor cadastrado (ou preencher novo)...</option>
+                  ${servidores.map(s => `<option value="${escapeHtml(s.matricula)}">${escapeHtml(s.nome_completo)} (${escapeHtml(s.matricula)})</option>`).join("")}
+                </select>
+                <button type="button" id="nr-btn-limpar-servidor" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] font-semibold">
+                  Novo / Limpar
+                </button>
               </div>
-              <button type="button" onclick="openSubModalNovoServidor('nova-missionario')" class="text-pf-gold hover:underline text-[11px] font-bold">
-                + Cadastrar Novo Servidor
-              </button>
             </div>
-            <input type="text" id="filtro-busca-missionario" oninput="filtrarOpcoesMissionario()" placeholder="🔍 Busca HOT: digite nome de guerra, nome completo, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 mb-1 text-xs text-white focus:border-pf-gold focus:outline-none">
-            <select id="nova-missionario" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
-              <option value="">Selecione o servidor executor...</option>
-              ${servidores.map(s => `<option value="${s.matricula}">${formatServidorOptionText(s)}</option>`).join('')}
-            </select>
-            <div id="hot-preview-nova-missionario" class="hidden mt-1 space-y-1 max-h-36 overflow-y-auto bg-slate-900/95 border border-slate-700 rounded-lg p-1.5"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <!-- Coluna 1 -->
+              <div class="space-y-2.5">
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Nome *</label>
+                  <input type="text" id="nr-srv-nome" placeholder="NOME COMPLETO DO SERVIDOR" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold uppercase">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">CPF</label>
+                  <input type="text" id="nr-srv-cpf" placeholder="000.000.000-00" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Cargo *</label>
+                  <select id="nr-srv-cargo" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                    ${cargos.map(c => `<option value="${escapeHtml(c.sigla)}">${escapeHtml(c.sigla)} - ${escapeHtml(c.descricao)}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Matrícula *</label>
+                  <input type="text" id="nr-srv-matricula" placeholder="Ex: 31450" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-pf-gold font-mono font-bold">
+                </div>
+              </div>
+
+              <!-- Coluna 2 -->
+              <div class="space-y-2.5">
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Lotação *</label>
+                  <select id="nr-srv-lotacao" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                    ${unidades.map(u => `<option value="${escapeHtml(u.sigla)}">${escapeHtml(u.sigla)} - ${escapeHtml(u.nome_extenso)}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Telefone</label>
+                  <input type="text" id="nr-srv-telefone" placeholder="(83) 99999-9999" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Login</label>
+                  <input type="text" id="nr-srv-login" placeholder="nome.sobrenome" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                  <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Observação</label>
+                  <textarea id="nr-observacoes" rows="2" placeholder="Observações deste recrutamento..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"></textarea>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- CONTAINER MISSÃO EM EQUIPE (MÚLTIPLOS SERVIDORES) -->
-          <div id="container-equipe-multi" class="hidden md:col-span-3 bg-slate-950 p-4 rounded-xl border border-blue-800 space-y-2">
-            <div class="flex items-center justify-between">
+          <!-- BLOCO EQUIPE (VISÍVEL APENAS SE MODALIDADE = EQUIPE) -->
+          <div id="container-equipe-wrapper" class="hidden space-y-3 bg-slate-950/70 border border-blue-800/60 rounded-2xl p-4">
+            <h3 class="text-xs font-bold text-blue-300 uppercase tracking-wider border-b border-slate-800 pb-2">Dados da Equipe Policial</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="md:col-span-2">
+                <label class="block text-slate-400 mb-1">Título da Missão</label>
+                <input type="text" id="nova-titulo" placeholder="Ex: Operação Fronteira Segura 2026" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+              </div>
               <div>
-                <span class="font-bold text-blue-300 text-xs uppercase">Designar Servidores da Equipe (Múltiplos)</span>
-                <p class="text-[11px] text-slate-400">Marque todos os policiais que integrarão a equipe desta missão (<span id="count-busca-equipe" class="text-pf-gold font-semibold">${servidores.length} disponíveis</span>):</p>
+                <label class="block text-slate-400 mb-1">Tipo de Missão</label>
+                <select id="nova-tipo" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  ${tipos.map(t => `<option value="${escapeHtml(t.nome)}">${escapeHtml(t.nome)}</option>`).join("")}
+                </select>
               </div>
-              <button type="button" onclick="openSubModalNovoServidor('equipe-servidores')" class="px-2.5 py-1 bg-pf-800 hover:bg-pf-700 text-pf-gold border border-pf-gold/50 rounded-lg text-xs font-bold transition">
-                + Cadastrar Novo Servidor
-              </button>
+              <div>
+                <label class="block text-slate-400 mb-1">Unidade Solicitante</label>
+                <select id="nova-solicitante" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  ${unidades.map(u => `<option value="${escapeHtml(u.sigla)}">${escapeHtml(u.sigla)} - ${escapeHtml(u.nome_extenso)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="md:col-span-2">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-slate-300 font-semibold">Chefe da Missão / Responsável</label>
+                  <span id="count-busca-responsavel" class="text-[10px] text-pf-gold font-semibold">${servidores.length} disponíveis</span>
+                </div>
+                <input type="text" id="filtro-busca-responsavel" oninput="filtrarOpcoesResponsavel()" placeholder="🔍 Pesquisar chefe..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 mb-1 text-xs text-white">
+                <select id="nova-responsavel" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  <option value="">Selecione o chefe da missão...</option>
+                  ${servidores.map(s => `<option value="${escapeHtml(s.matricula)}">${formatServidorOptionText(s)}</option>`).join("")}
+                </select>
+                <div id="hot-preview-nova-responsavel" class="hidden mt-1 space-y-1 max-h-28 overflow-y-auto bg-slate-900/95 border border-slate-700 rounded-lg p-1.5"></div>
+              </div>
             </div>
-            <input type="text" id="filtro-busca-equipe" oninput="filtrarOpcoesEquipe()" placeholder="🔍 Busca HOT por nome de guerra, nome, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-pf-gold focus:outline-none">
-            <div id="lista-equipe-servidores" class="max-h-48 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-slate-900 rounded-lg border border-slate-800">
-              ${renderEquipeChecklistHtml(servidores)}
+
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-blue-300 text-xs uppercase">Servidores da Equipe (<span id="count-busca-equipe" class="text-pf-gold">${servidores.length}</span>)</span>
+                <button type="button" onclick="openSubModalNovoServidor('equipe-servidores')" class="px-2.5 py-1 bg-pf-800 hover:bg-pf-700 text-pf-gold border border-pf-gold/50 rounded-lg text-xs font-bold transition">
+                  + Cadastrar Novo Servidor
+                </button>
+              </div>
+              <input type="text" id="filtro-busca-equipe" oninput="filtrarOpcoesEquipe()" placeholder="🔍 Busca HOT por nome de guerra, nome, cargo ou matrícula..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+              <div id="lista-equipe-servidores" class="max-h-40 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-slate-900 rounded-lg border border-slate-800">
+                ${renderEquipeChecklistHtml(servidores)}
+              </div>
             </div>
           </div>
 
-          <div>
-            <label class="block text-slate-400 mb-1">Processo SEI</label>
-            <input type="text" id="nova-sei" placeholder="08200.000000/2026-00" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+          <!-- BLOCO 2: DADOS DA MISSÃO -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-4">
+            <h3 class="text-xs font-bold text-pf-gold uppercase tracking-wider border-b border-slate-800 pb-2">Dados da Missão</h3>
+
+            <!-- Datas e Qte Dias -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Data Início *</label>
+                <input type="date" id="nr-dt-inicio" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Data Final *</label>
+                <input type="date" id="nr-dt-termino" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Qte Dias</label>
+                <div id="nr-qtd-dias" class="w-full bg-slate-900/70 border border-slate-800 rounded-lg p-2 text-amber-300 font-bold">-</div>
+              </div>
+            </div>
+
+            <!-- Local da Missão -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div class="md:col-span-2">
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Local da Missão (Unidade / Cidade Destino)</label>
+                <input type="text" id="nr-unidade-search" placeholder="🔍 Filtrar unidade ou cidade..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 mb-1 text-xs text-white">
+                <select id="nr-unidade-destino" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  ${renderUnidadeDestinoOptions(unidades, "")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Cidade *</label>
+                <input type="text" id="nr-cidade" placeholder="Ex: João Pessoa/PB" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Setor</label>
+                <select id="nr-setor" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+                  <option value="">Nenhum / Geral</option>
+                  ${setores.map(s => `<option value="${escapeHtml(s.sigla)}">${escapeHtml(s.sigla)} - ${escapeHtml(s.nome)}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+
+            <!-- Valor da Diária, Deslocamento, Passagens, Total Diárias -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Valor da Diária (R$)</label>
+                <input type="number" id="nr-valor-diaria" step="0.50" min="0" value="${parseFloat(diariaBase).toFixed(2)}" required
+                       class="w-full bg-slate-900 border-2 border-pf-gold rounded-lg p-2 text-amber-300 font-extrabold">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Deslocamento</label>
+                <select id="nr-deslocamento" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold">
+                  ${renderDeslocamentoOptions("NAO_DEFINIDO")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Passagens: R$</label>
+                <input type="number" id="nr-passagens" step="0.01" min="0" value="0.00" disabled
+                       class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sky-300 font-bold opacity-50 cursor-not-allowed">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Total das Diárias: R$</label>
+                <div id="nr-total-diarias" class="w-full bg-slate-900/70 border border-slate-800 rounded-lg p-2 text-emerald-400 font-extrabold">R$ 0,00</div>
+              </div>
+            </div>
+
+            <div id="nr-isencao-aviso" class="hidden p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/60 text-amber-200 text-[11px] font-medium"></div>
+
+            <!-- Status da Missão, N° PCDP, N° ALOC/SAT -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">Status da Missão</label>
+                <select id="nr-status" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-medium">
+                  ${renderOfficialStatusOptions("Indicado", "", true)}
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">N° PCDP</label>
+                <input type="text" id="nr-pcdp" placeholder="Ex: PCDP-000101/26" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 uppercase text-[10px] font-semibold">N° ALOC/SAT</label>
+                <input type="text" id="nr-sat" placeholder="Ex: SAT-2026-0000" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+              </div>
+            </div>
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Nº Solicitação SAT</label>
-            <input type="text" id="nova-sat" placeholder="SAT-2026-0000" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+
+          <!-- Resumo Financeiro ao Vivo -->
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+            <div>
+              <p class="text-slate-400 uppercase font-semibold text-[10px]">Custo Geral Previsto</p>
+              <p id="nr-resumo-geral" class="text-lg font-extrabold text-emerald-400">R$ 0,00</p>
+            </div>
+            <div class="flex items-center space-x-6 text-right">
+              <div>
+                <p class="text-slate-500 text-[10px]">Subtotal Diárias:</p>
+                <p id="nr-resumo-diarias" class="font-bold text-amber-300">R$ 0,00</p>
+              </div>
+              <div>
+                <p class="text-slate-500 text-[10px]">Subtotal Passagens:</p>
+                <p id="nr-resumo-passagens" class="font-bold text-blue-300">R$ 0,00</p>
+              </div>
+            </div>
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Ordem de Missão (OM)</label>
-            <input type="text" id="nova-om" placeholder="OM-2026-0000" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+
+          <div class="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">Cancelar</button>
+            <button type="submit" class="px-6 py-2 bg-gradient-to-r from-pf-gold to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-slate-950 font-extrabold rounded-xl shadow-lg uppercase tracking-wider">
+              SALVAR
+            </button>
           </div>
+        </form>
+      </div>
+    `;
 
-          <div class="md:col-span-3">
-            <label class="block text-slate-400 mb-1">Justificativa da Missão <span class="text-slate-500 text-[10px] font-normal">(opcional)</span></label>
-            <textarea id="nova-justificativa" rows="2" placeholder="Fundamentação ou observações operacionais (opcional)..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"></textarea>
-          </div>
-        </div>
-
-        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-800">
-          <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-gradient-to-r from-pf-gold to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-slate-950 font-bold rounded-xl shadow">Cadastrar Missão</button>
-        </div>
-      </form>
-    </div>
-  `;
-
-  // Garantir visibilidade inicial consistente (INDIVIDUAL = oculta chefe e equipe)
-  toggleModalidadeFields();
-
-  document.getElementById("form-criar-missao").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const modalidade = document.querySelector('input[name="nova-modalidade"]:checked').value;
-    const missionarioMatricula = document.getElementById("nova-missionario")?.value || null;
-    const responsavelMatricula = modalidade === "EQUIPE" ? (document.getElementById("nova-responsavel")?.value || null) : null;
-    const meioTransporte = document.getElementById("nova-transporte").value;
-    const custoPassagens = meioTransporte === "AEREO" ? parseFloat(document.getElementById("nova-custo-passagens").value || 0) : 0;
-    const setorDestino = document.getElementById("nova-setor").value || null;
-
-    let equipeMatriculas = [];
-    if (modalidade === "EQUIPE") {
-      equipeMatriculas = Array.from(window.SELECTED_EQUIPE_MATRICULAS || []);
-    }
-
-    if (modalidade === "INDIVIDUAL" && !missionarioMatricula) {
-      alert("Para missões na modalidade INDIVIDUAL, é obrigatório selecionar o Missionário Designado.");
-      return;
-    }
-
-    const payload = {
-      titulo: document.getElementById("nova-titulo").value.trim(),
-      tipo_missao: document.getElementById("nova-tipo").value,
-      modalidade: modalidade,
-      unidade_solicitante: document.getElementById("nova-solicitante").value,
-      unidade_destino: document.getElementById("nova-destino").value || null,
-      setor_destino: setorDestino,
-      meio_transporte: meioTransporte,
-      custo_estimado_passagens: custoPassagens,
-      localidade_descricao: document.getElementById("nova-localidade").value.trim(),
-      data_inicio: document.getElementById("nova-dt-inicio").value,
-      data_termino: document.getElementById("nova-dt-termino").value,
-      valor_diaria_padrao: parseFloat(document.getElementById("nova-diaria-padrao").value || 425),
-      responsavel_matricula: responsavelMatricula,
-      missionario_matricula: missionarioMatricula,
-      servidores_matriculas: equipeMatriculas,
-      servidores_equipe_matriculas: equipeMatriculas,
-      numero_om: document.getElementById("nova-om").value.trim() || null,
-      processo_sei: document.getElementById("nova-sei").value.trim() || null,
-      numero_sat: document.getElementById("nova-sat").value.trim() || null,
-      justificativa: document.getElementById("nova-justificativa").value.trim(),
-      status_atual: document.getElementById("nova-status")?.value || "Indicado"
+    // Helper para preencher campos do servidor selecionado
+    const preencherCamposServidorNr = (s) => {
+      if (!s) {
+        document.getElementById("nr-srv-nome").value = "";
+        document.getElementById("nr-srv-cpf").value = "";
+        document.getElementById("nr-srv-matricula").value = "";
+        document.getElementById("nr-srv-telefone").value = "";
+        document.getElementById("nr-srv-login").value = "";
+      } else {
+        document.getElementById("nr-srv-nome").value = s.nome_completo || "";
+        document.getElementById("nr-srv-cpf").value = s.cpf || "";
+        document.getElementById("nr-srv-cargo").value = s.cargo_sigla || cargos[0]?.sigla || "APF";
+        document.getElementById("nr-srv-matricula").value = s.matricula || "";
+        document.getElementById("nr-srv-lotacao").value = s.unidade_sigla || unidades[0]?.sigla || "SR/PF/PB";
+        document.getElementById("nr-srv-telefone").value = s.telefone_celular || "";
+        document.getElementById("nr-srv-login").value = s.login_rede || "";
+      }
+      atualizarCalculoAoVivoRecrutamento("nr");
     };
 
-    try {
-      const criada = await apiFetch("/api/missoes", {
-        method: "POST",
-        body: JSON.stringify(payload)
+    const nrBuscaSrv = document.getElementById("nr-busca-servidor");
+    const nrSelSrv = document.getElementById("nr-select-servidor");
+    if (nrBuscaSrv && nrSelSrv) {
+      nrBuscaSrv.addEventListener("input", () => {
+        const term = normalizeTextKey(nrBuscaSrv.value);
+        const lista = ACTIVE_SERVERS_MODAL || [];
+        const filtered = term ? lista.filter(s => servidorMatchesTerm(s, term) || normalizeTextKey(s.cpf || "").includes(term)) : lista;
+        let html = `<option value="">${term ? `✓ ${filtered.length} encontrado(s) — selecione:` : "Selecionar servidor cadastrado (ou preencher novo)..."}</option>`;
+        html += filtered.map(s => `<option value="${escapeHtml(s.matricula)}">${escapeHtml(s.nome_completo)} (${escapeHtml(s.matricula)})</option>`).join("");
+        nrSelSrv.innerHTML = html;
+        if (term && filtered.length === 1) {
+          nrSelSrv.value = filtered[0].matricula;
+          preencherCamposServidorNr(filtered[0]);
+        }
       });
-      closeModal();
-      await navigate("missoes");
-      openMissaoDetail(criada.id);
-    } catch (err) {
-      alert(`Erro ao criar missão: ${err.message}`);
+
+      nrSelSrv.addEventListener("change", () => {
+        const s = (ACTIVE_SERVERS_MODAL || []).find(x => x.matricula === nrSelSrv.value);
+        preencherCamposServidorNr(s || null);
+      });
     }
-  });
+
+    document.getElementById("nr-btn-limpar-servidor")?.addEventListener("click", () => {
+      if (nrBuscaSrv) nrBuscaSrv.value = "";
+      if (nrSelSrv) nrSelSrv.value = "";
+      preencherCamposServidorNr(null);
+      document.getElementById("nr-srv-nome")?.focus();
+    });
+
+    // Lookup automático ao digitar matrícula de servidor existente
+    document.getElementById("nr-srv-matricula")?.addEventListener("blur", () => {
+      const mat = document.getElementById("nr-srv-matricula").value.trim();
+      const s = (ACTIVE_SERVERS_MODAL || []).find(x => x.matricula === mat);
+      if (s && !document.getElementById("nr-srv-nome").value.trim()) {
+        preencherCamposServidorNr(s);
+        if (nrSelSrv) nrSelSrv.value = s.matricula;
+      }
+      atualizarCalculoAoVivoRecrutamento("nr");
+    });
+
+    // Unidade / Cidade de Destino
+    const nrUnidSearch = document.getElementById("nr-unidade-search");
+    const nrUnidSel = document.getElementById("nr-unidade-destino");
+    if (nrUnidSearch) {
+      nrUnidSearch.addEventListener("input", () => filtrarUnidadeDestinoSelect("nr-unidade-search", "nr-unidade-destino", unidades));
+    }
+    if (nrUnidSel) {
+      nrUnidSel.addEventListener("change", () => {
+        const opt = nrUnidSel.options[nrUnidSel.selectedIndex];
+        if (opt && opt.value) {
+          const cid = opt.getAttribute("data-cidade");
+          const dia = opt.getAttribute("data-diaria");
+          if (cid) document.getElementById("nr-cidade").value = cid;
+          if (dia) document.getElementById("nr-valor-diaria").value = parseFloat(dia).toFixed(2);
+        }
+        atualizarCalculoAoVivoRecrutamento("nr");
+      });
+    }
+
+    // Deslocamento e Passagens
+    document.getElementById("nr-deslocamento")?.addEventListener("change", () => {
+      atualizarPassagensPorDeslocamento("nr-deslocamento", "nr-passagens");
+      atualizarCalculoAoVivoRecrutamento("nr");
+    });
+
+    ["nr-dt-inicio", "nr-dt-termino", "nr-valor-diaria", "nr-passagens", "nr-srv-lotacao"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener("input", () => atualizarCalculoAoVivoRecrutamento("nr"));
+        el.addEventListener("change", () => atualizarCalculoAoVivoRecrutamento("nr"));
+      }
+    });
+
+    toggleModalidadeFields();
+    atualizarPassagensPorDeslocamento("nr-deslocamento", "nr-passagens");
+    atualizarCalculoAoVivoRecrutamento("nr");
+
+    document.getElementById("form-criar-missao").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const modalidade = document.querySelector('input[name="nova-modalidade"]:checked')?.value || "INDIVIDUAL";
+      const deslVal = normalizeDeslocamentoCode(document.getElementById("nr-deslocamento").value);
+      const passagensVal = deslVal === "AEREO" ? (parseFloat(document.getElementById("nr-passagens").value || 0) || 0) : 0.0;
+      const unidadeDest = document.getElementById("nr-unidade-destino").value || null;
+      const cidadeVal = document.getElementById("nr-cidade").value.trim();
+      const setorVal = document.getElementById("nr-setor").value || null;
+      const dtInicio = document.getElementById("nr-dt-inicio").value;
+      const dtTermino = document.getElementById("nr-dt-termino").value;
+      const valorDiaria = parseFloat(document.getElementById("nr-valor-diaria").value || 425);
+      const statusVal = document.getElementById("nr-status")?.value || "Indicado";
+      const pcdpVal = document.getElementById("nr-pcdp").value.trim() || null;
+      const satVal = document.getElementById("nr-sat").value.trim() || null;
+      const obsVal = document.getElementById("nr-observacoes")?.value.trim() || null;
+
+      let missionarioMatricula = null;
+      let responsavelMatricula = null;
+      let equipeMatriculas = [];
+      let tituloPayload = null;
+      let tipoPayload = null;
+      let solicitantePayload = null;
+
+      if (modalidade === "INDIVIDUAL") {
+        const srvNome = document.getElementById("nr-srv-nome").value.trim().toUpperCase();
+        const srvCpf = document.getElementById("nr-srv-cpf").value.trim();
+        const srvCargo = document.getElementById("nr-srv-cargo").value;
+        const srvMat = document.getElementById("nr-srv-matricula").value.trim();
+        const srvLotacao = document.getElementById("nr-srv-lotacao").value;
+        const srvTel = document.getElementById("nr-srv-telefone").value.trim();
+        const srvLogin = document.getElementById("nr-srv-login").value.trim();
+
+        if (!srvMat || !srvNome) {
+          alert("Informe ao menos o Nome e a Matrícula do servidor recrutado.");
+          return;
+        }
+
+        const existingSrv = (ACTIVE_SERVERS_MODAL || []).find(s => s.matricula === srvMat);
+        try {
+          if (!existingSrv) {
+            const criadoSrv = await apiFetch("/api/servidores", {
+              method: "POST",
+              body: JSON.stringify({
+                matricula: srvMat,
+                nome_completo: srvNome,
+                cpf: srvCpf || null,
+                cargo_sigla: srvCargo,
+                unidade_sigla: srvLotacao,
+                telefone_celular: srvTel || null,
+                login_rede: srvLogin || null,
+                ativo: true,
+                is_missionario_geral: true
+              })
+            });
+            ACTIVE_SERVERS_MODAL.unshift(criadoSrv);
+          } else {
+            await apiFetch(`/api/servidores/${encodeURIComponent(srvMat)}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                nome_completo: srvNome,
+                cpf: srvCpf,
+                cargo_sigla: srvCargo,
+                unidade_sigla: srvLotacao,
+                telefone_celular: srvTel,
+                login_rede: srvLogin
+              })
+            });
+          }
+        } catch (srvErr) {
+          alert(`Erro ao salvar dados do servidor: ${srvErr.message}`);
+          return;
+        }
+        missionarioMatricula = srvMat;
+        solicitantePayload = srvLotacao || "SR/PF/PB";
+      } else {
+        responsavelMatricula = document.getElementById("nova-responsavel")?.value || null;
+        equipeMatriculas = Array.from(window.SELECTED_EQUIPE_MATRICULAS || []);
+        tituloPayload = document.getElementById("nova-titulo")?.value.trim() || null;
+        tipoPayload = document.getElementById("nova-tipo")?.value || null;
+        solicitantePayload = document.getElementById("nova-solicitante")?.value || "SR/PF/PB";
+      }
+
+      const payload = {
+        titulo: tituloPayload,
+        tipo_missao: tipoPayload,
+        modalidade: modalidade,
+        unidade_solicitante: solicitantePayload,
+        unidade_destino: unidadeDest,
+        setor_destino: setorVal,
+        meio_transporte: deslVal,
+        custo_estimado_passagens: passagensVal,
+        localidade_descricao: cidadeVal,
+        data_inicio: dtInicio,
+        data_termino: dtTermino,
+        valor_diaria_padrao: valorDiaria,
+        responsavel_matricula: responsavelMatricula,
+        missionario_matricula: missionarioMatricula,
+        servidores_matriculas: equipeMatriculas,
+        servidores_equipe_matriculas: equipeMatriculas,
+        numero_pcdp: pcdpVal,
+        numero_sat: satVal,
+        observacoes: obsVal,
+        status_atual: statusVal
+      };
+
+      try {
+        const criada = await apiFetch("/api/missoes", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        closeModal();
+        await navigate("missoes");
+        openMissaoDetail(criada.id);
+      } catch (err) {
+        alert(`Erro ao salvar recrutamento: ${err.message}`);
+      }
+    });
+  } catch (err) {
+    modalContent.innerHTML = renderApiErrorBox("Erro ao abrir Novo Recrutamento", err, "openModalNovaMissao()");
+  }
 }
 
 function toggleModalidadeFields() {
   const modalidade = document.querySelector('input[name="nova-modalidade"]:checked')?.value || "INDIVIDUAL";
-  const hint = document.getElementById("modalidade-hint");
-  const containerMissionario = document.getElementById("container-nova-missionario");
-  const containerResponsavel = document.getElementById("container-nova-responsavel");
-  const containerEquipe = document.getElementById("container-equipe-multi");
+  const containerInd = document.getElementById("container-nr-servidor-individual");
+  const containerEq = document.getElementById("container-equipe-wrapper");
 
   if (modalidade === "INDIVIDUAL") {
-    if (hint) hint.innerHTML = `<strong class="text-fuchsia-400">Missão Individual (Padrão):</strong> O policial selecionado como missionário será automaticamente cadastrado como único participante com cálculo de diárias e passagens.`;
-    if (containerMissionario) containerMissionario.classList.remove("hidden");
-    if (containerResponsavel) containerResponsavel.classList.add("hidden");
-    if (containerEquipe) containerEquipe.classList.add("hidden");
+    if (containerInd) containerInd.classList.remove("hidden");
+    if (containerEq) containerEq.classList.add("hidden");
   } else {
-    if (hint) hint.innerHTML = `<strong class="text-blue-400">Missão em Equipe:</strong> Informe o chefe/responsável e selecione abaixo os servidores que integrarão a equipe desta missão coletiva.`;
-    if (containerMissionario) containerMissionario.classList.add("hidden");
-    if (containerResponsavel) containerResponsavel.classList.remove("hidden");
-    if (containerEquipe) containerEquipe.classList.remove("hidden");
+    if (containerInd) containerInd.classList.add("hidden");
+    if (containerEq) containerEq.classList.remove("hidden");
   }
 }
 
 function toggleNovaMissaoTransporte() {
-  const transporte = document.getElementById("nova-transporte")?.value;
-  const containerPassagem = document.getElementById("container-custo-passagens");
-  if (containerPassagem) {
-    if (transporte === "AEREO") {
-      containerPassagem.classList.remove("hidden");
-    } else {
-      containerPassagem.classList.add("hidden");
-      const inp = document.getElementById("nova-custo-passagens");
-      if (inp) inp.value = "0.00";
-    }
-  }
+  atualizarPassagensPorDeslocamento("nr-deslocamento", "nr-passagens");
 }
 
 function autoAjustarDiariaPorDestino() {
-  const destino = document.getElementById("nova-destino")?.value;
-  const diariaInput = document.getElementById("nova-diaria-padrao");
-  const badgeInfo = document.getElementById("badge-destino-diaria");
-  if (!destino || !diariaInput) return;
-  const u = METADATA_CACHE.unidades.find(x => x.sigla === destino);
-  if (u && u.valor_diaria) {
-    diariaInput.value = parseFloat(u.valor_diaria).toFixed(2);
-    if (badgeInfo) {
-      badgeInfo.textContent = `✓ Valor automático para ${u.sigla}: R$ ${parseFloat(u.valor_diaria).toFixed(2)} (${u.categoria_diaria || u.tipo_unidade || 'Tabela Oficial'})`;
-      badgeInfo.classList.remove("hidden");
-    }
-  } else if (badgeInfo) {
-    badgeInfo.classList.add("hidden");
-  }
+  const sel = document.getElementById("nr-unidade-destino");
+  if (sel) sel.dispatchEvent(new Event("change"));
 }
 
 function updateHotServerSelect(inputId, selectId, countId, emptyPlaceholder) {
@@ -2499,7 +3195,7 @@ function updateHotServerSelect(inputId, selectId, countId, emptyPlaceholder) {
 
   let html = "";
   if (filtered.length === 0) {
-    html = `<option value="">Nenhum policial encontrado para "${term}"</option>`;
+    html = `<option value="">Nenhum policial encontrado para "${escapeHtml(term)}"</option>`;
   } else {
     if (!(term.trim() && filtered.length === 1)) {
       html += `<option value="">${term.trim() ? `✓ ${filtered.length} encontrado(s) — selecione:` : emptyPlaceholder}</option>`;
@@ -2593,7 +3289,7 @@ function filtrarOpcoesEquipe() {
   }
 }
 
-// Sub-modal para cadastro rápido de novo servidor sem perder o contexto da missão
+// Sub-modal para cadastro rápido de novo servidor (usado em EQUIPE)
 function openSubModalNovoServidor(targetSelectOrListId) {
   const subModal = document.createElement("div");
   subModal.id = "submodal-novo-servidor";
@@ -2608,8 +3304,12 @@ function openSubModalNovoServidor(targetSelectOrListId) {
       <form id="form-sub-servidor" class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-slate-400 mb-1">Matrícula Funcional</label>
+            <label class="block text-slate-400 mb-1">Matrícula Funcional *</label>
             <input type="text" id="sub-srv-matricula" required placeholder="Ex: 31450" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">CPF</label>
+            <input type="text" id="sub-srv-cpf" placeholder="000.000.000-00" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono">
           </div>
           <div>
             <label class="block text-slate-400 mb-1">Cargo / Carreira</label>
@@ -2618,22 +3318,22 @@ function openSubModalNovoServidor(targetSelectOrListId) {
             </select>
           </div>
           <div>
-            <label class="block text-slate-400 mb-1">Nome de Guerra</label>
-            <input type="text" id="sub-srv-guerra" required placeholder="EX: SILVA" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-amber-300 font-bold uppercase">
-          </div>
-          <div>
             <label class="block text-slate-400 mb-1">Unidade de Lotação</label>
             <select id="sub-srv-unidade" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white">
               ${METADATA_CACHE.unidades.map(u => `<option value="${u.sigla}">${u.sigla}</option>`).join('')}
             </select>
           </div>
           <div class="col-span-2">
-            <label class="block text-slate-400 mb-1">Nome Completo</label>
+            <label class="block text-slate-400 mb-1">Nome Completo *</label>
             <input type="text" id="sub-srv-nome" required placeholder="NOME DO POLICIAL FEDERAL" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-semibold uppercase">
           </div>
-          <div class="col-span-2">
-            <label class="block text-slate-400 mb-1">E-mail Institucional</label>
-            <input type="email" id="sub-srv-email" required placeholder="policial.xyz@pf.gov.br" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white">
+          <div>
+            <label class="block text-slate-400 mb-1">Telefone</label>
+            <input type="text" id="sub-srv-telefone" placeholder="(83) 99999-9999" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Login</label>
+            <input type="text" id="sub-srv-login" placeholder="nome.sobrenome" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono">
           </div>
         </div>
 
@@ -2649,22 +3349,24 @@ function openSubModalNovoServidor(targetSelectOrListId) {
   document.getElementById("form-sub-servidor").addEventListener("submit", async (e) => {
     e.preventDefault();
     const matricula = document.getElementById("sub-srv-matricula").value.trim();
-    const nomeGuerra = document.getElementById("sub-srv-guerra").value.trim().toUpperCase();
+    const cpf = document.getElementById("sub-srv-cpf").value.trim() || null;
     const nome = document.getElementById("sub-srv-nome").value.trim().toUpperCase();
     const cargo = document.getElementById("sub-srv-cargo").value;
     const unidade = document.getElementById("sub-srv-unidade").value;
-    const email = document.getElementById("sub-srv-email").value.trim().toLowerCase();
+    const telefone = document.getElementById("sub-srv-telefone").value.trim() || null;
+    const login = document.getElementById("sub-srv-login").value.trim() || null;
 
     try {
       const criado = await apiFetch("/api/servidores", {
         method: "POST",
         body: JSON.stringify({
           matricula,
-          nome_guerra: nomeGuerra,
+          cpf,
           nome_completo: nome,
           cargo_sigla: cargo,
           unidade_sigla: unidade,
-          email_institucional: email,
+          telefone_celular: telefone,
+          login_rede: login,
           ativo: true,
           is_missionario_geral: true
         })
@@ -2673,18 +3375,12 @@ function openSubModalNovoServidor(targetSelectOrListId) {
       if (!Array.isArray(ACTIVE_SERVERS_MODAL)) ACTIVE_SERVERS_MODAL = [];
       ACTIVE_SERVERS_MODAL.unshift(criado);
 
-      const selectMissionario = document.getElementById("nova-missionario");
-      if (selectMissionario) {
-        updateHotServerSelect("filtro-busca-missionario", "nova-missionario", "count-busca-missionario", "Selecione o servidor executor...");
-        selectMissionario.value = criado.matricula;
-      }
-
       if (!window.SELECTED_EQUIPE_MATRICULAS) window.SELECTED_EQUIPE_MATRICULAS = new Set();
       window.SELECTED_EQUIPE_MATRICULAS.add(criado.matricula);
       filtrarOpcoesEquipe();
 
       subModal.remove();
-      alert(`Servidor '${criado.nome_guerra || criado.nome_completo}' cadastrado e selecionado com sucesso!`);
+      alert(`Servidor '${criado.nome_completo}' cadastrado e selecionado com sucesso!`);
     } catch (err) {
       alert(`Erro ao cadastrar servidor: ${err.message}`);
     }
@@ -2814,7 +3510,7 @@ async function renderServidores(container) {
     });
 
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao listar servidores: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao listar servidores", err, "navigate('servidores')");
   }
 }
 
@@ -2824,19 +3520,22 @@ function renderServidoresRows(servidores) {
   }
   return servidores.map(s => `
     <tr class="hover:bg-slate-800/40 transition">
-      <td class="py-3 px-3 font-mono font-bold text-pf-gold">${s.matricula}</td>
+      <td class="py-3 px-3 font-mono font-bold text-pf-gold">
+        <p>${escapeHtml(s.matricula)}</p>
+        ${s.cpf ? `<p class="text-[10px] text-slate-400 font-normal">CPF: ${escapeHtml(s.cpf)}</p>` : ''}
+      </td>
       <td class="py-3 px-3">
-        ${s.nome_guerra ? `<p class="font-bold text-pf-gold uppercase tracking-wide">${s.nome_guerra}</p><p class="text-[11px] text-slate-300">${s.nome_completo}</p>` : `<p class="font-bold text-white">${s.nome_completo}</p>`}
+        ${s.nome_guerra ? `<p class="font-bold text-pf-gold uppercase tracking-wide">${escapeHtml(s.nome_guerra)}</p><p class="text-[11px] text-slate-300">${escapeHtml(s.nome_completo)}</p>` : `<p class="font-bold text-white">${escapeHtml(s.nome_completo)}</p>`}
       </td>
       <td class="py-3 px-3">
         <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-blue-300 border border-slate-700">
-          ${s.cargo_sigla}
+          ${escapeHtml(s.cargo_sigla)}
         </span>
       </td>
-      <td class="py-3 px-3 font-semibold text-slate-200">${s.unidade_sigla}</td>
+      <td class="py-3 px-3 font-semibold text-slate-200">${escapeHtml(s.unidade_sigla)}</td>
       <td class="py-3 px-3 text-slate-300">
-        <p>${s.email_institucional}</p>
-        <p class="text-[11px] text-slate-500">${s.telefone_celular || '-'}</p>
+        <p>${escapeHtml(s.login_rede || s.email_institucional || '-')}</p>
+        <p class="text-[11px] text-slate-500">${escapeHtml(s.telefone_celular || '-')}</p>
       </td>
       <td class="py-3 px-3">
         ${s.tpe ? 
@@ -2870,7 +3569,9 @@ function applyServidoresFilter(allServidores) {
       normalizeTextKey(s.matricula).includes(busca) ||
       normalizeTextKey(s.nome_completo).includes(busca) ||
       normalizeTextKey(s.nome_guerra || "").includes(busca) ||
-      normalizeTextKey(s.email_institucional).includes(busca);
+      normalizeTextKey(s.cpf || "").includes(busca) ||
+      normalizeTextKey(s.login_rede || "").includes(busca) ||
+      normalizeTextKey(s.email_institucional || "").includes(busca);
     const matchCargo = !cargo || s.cargo_sigla === cargo;
     const matchUnidade = !unidade || s.unidade_sigla === unidade;
     const matchStatus = !status || String(s.ativo) === status;
@@ -2900,11 +3601,15 @@ async function openModalNovoServidor() {
       <form id="form-criar-servidor" class="space-y-3 text-xs">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label class="block text-slate-400 mb-1">Matrícula Funcional</label>
+            <label class="block text-slate-400 mb-1">Matrícula Funcional *</label>
             <input type="text" id="srv-matricula" required placeholder="Ex: 25489" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
           </div>
           <div>
-            <label class="block text-slate-400 mb-1">Nome Completo</label>
+            <label class="block text-slate-400 mb-1">CPF</label>
+            <input type="text" id="srv-cpf" placeholder="000.000.000-00" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Nome Completo *</label>
             <input type="text" id="srv-nome" required placeholder="NOME DO SERVIDOR" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold uppercase">
           </div>
           <div>
@@ -2924,8 +3629,12 @@ async function openModalNovoServidor() {
             </select>
           </div>
           <div>
-            <label class="block text-slate-400 mb-1">E-mail Institucional</label>
-            <input type="email" id="srv-email" required placeholder="usuario.xyz@pf.gov.br" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+            <label class="block text-slate-400 mb-1">Login de Rede</label>
+            <input type="text" id="srv-login" placeholder="nome.sobrenome" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">E-mail Institucional <span class="text-slate-500 text-[10px]">(opcional)</span></label>
+            <input type="email" id="srv-email" placeholder="usuario.xyz@pf.gov.br" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
           </div>
           <div>
             <label class="block text-slate-400 mb-1">Telefone Celular</label>
@@ -2955,11 +3664,13 @@ async function openModalNovoServidor() {
     e.preventDefault();
     const payload = {
       matricula: document.getElementById("srv-matricula").value.trim(),
+      cpf: document.getElementById("srv-cpf").value.trim() || null,
       nome_completo: document.getElementById("srv-nome").value.trim().toUpperCase(),
       nome_guerra: document.getElementById("srv-guerra").value.trim().toUpperCase() || null,
       cargo_sigla: document.getElementById("srv-cargo").value,
       unidade_sigla: document.getElementById("srv-unidade").value,
-      email_institucional: document.getElementById("srv-email").value.trim().toLowerCase(),
+      login_rede: document.getElementById("srv-login").value.trim() || null,
+      email_institucional: document.getElementById("srv-email").value.trim().toLowerCase() || null,
       telefone_celular: document.getElementById("srv-telefone").value.trim() || null,
       tpe: document.getElementById("srv-tpe").checked,
       is_missionario_geral: document.getElementById("srv-missionario").checked,
@@ -3059,8 +3770,41 @@ function executarCalculoSimulador() {
 }
 
 // ==============================================================================
-// 6. EXPORTAÇÃO DE DADOS
+// 6. EXPORTAÇÃO DE DADOS (COM AUTHORIZATION BEARER)
 // ==============================================================================
+async function downloadExport(url, defaultFilename) {
+  const token = localStorage.getItem("token");
+  try {
+    const response = await fetch(`${API_BASE}${url}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (response.status === 401) {
+      logout();
+      throw new Error("Sessão expirada. Faça login novamente.");
+    }
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || `Erro HTTP ${response.status}`);
+    }
+
+    const disp = response.headers.get("content-disposition") || "";
+    const match = disp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+    const filename = match ? match[1].replace(/['"]/g, "") : defaultFilename;
+
+    const blob = await response.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1500);
+  } catch (err) {
+    alert(`Erro ao exportar arquivo: ${err.message}`);
+  }
+}
+
 function renderExportar(container) {
   container.innerHTML = `
     <div class="max-w-3xl mx-auto space-y-6 animate-fade-in">
@@ -3079,9 +3823,9 @@ function renderExportar(container) {
               <h4 class="font-bold text-white text-sm">Planilha Excel (.xlsx)</h4>
               <p class="text-xs text-slate-400 mt-1">Relatório multiabas com modalidade, chefe e missionário.</p>
             </div>
-            <a href="/api/export/missoes.xlsx" target="_blank" class="mt-4 w-full text-center py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition">
+            <button type="button" onclick="downloadExport('/api/export/missoes.xlsx', 'relatorio_missoes_pf.xlsx')" class="mt-4 w-full text-center py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition">
               Baixar .XLSX
-            </a>
+            </button>
           </div>
 
           <div class="bg-slate-900 border border-slate-800 hover:border-blue-500/50 p-5 rounded-2xl flex flex-col justify-between transition">
@@ -3092,9 +3836,9 @@ function renderExportar(container) {
               <h4 class="font-bold text-white text-sm">Arquivo CSV (.csv)</h4>
               <p class="text-xs text-slate-400 mt-1">Exportação UTF-8 com BOM para importação rápida em planilhas.</p>
             </div>
-            <a href="/api/export/missoes.csv" target="_blank" class="mt-4 w-full text-center py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition">
+            <button type="button" onclick="downloadExport('/api/export/missoes.csv', 'missoes_pf.csv')" class="mt-4 w-full text-center py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition">
               Baixar .CSV
-            </a>
+            </button>
           </div>
 
           <div class="bg-slate-900 border border-slate-800 hover:border-amber-500/50 p-5 rounded-2xl flex flex-col justify-between transition">
@@ -3105,9 +3849,9 @@ function renderExportar(container) {
               <h4 class="font-bold text-white text-sm">JSON Canônico</h4>
               <p class="text-xs text-slate-400 mt-1">Payload estruturado com metadados para auditoria e SEI/SCDP.</p>
             </div>
-            <a href="/api/export/missoes.json" target="_blank" class="mt-4 w-full text-center py-2 bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold rounded-xl text-xs uppercase tracking-wider transition">
+            <button type="button" onclick="downloadExport('/api/export/missoes.json', 'missoes_pf.json')" class="mt-4 w-full text-center py-2 bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold rounded-xl text-xs uppercase tracking-wider transition">
               Baixar .JSON
-            </a>
+            </button>
           </div>
         </div>
       </div>
@@ -3119,6 +3863,11 @@ function renderExportar(container) {
 // 7. TRILHA DE AUDITORIA (HORÁRIO OFICIAL DO BRASIL BRT E DETALHES CLICÁVEIS)
 // ==============================================================================
 async function renderAuditoria(container) {
+  if (!CURRENT_USER || !["ADMIN", "GESTOR_NAC", "GERENCIAL"].includes(CURRENT_USER.role)) {
+    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Acesso restrito a perfis Administrador, Gestor Nacional ou Gerencial.</div>`;
+    return;
+  }
+
   container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando trilha de auditoria...</div>`;
   try {
     const logs = await apiFetch("/api/audit/logs");
@@ -3138,7 +3887,7 @@ async function renderAuditoria(container) {
             </span>
           </div>
 
-          <!-- Filtros de Auditoria -->
+          <!-- Filtros de Auditoria (Códigos reais da tabela audit_logs) -->
           <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs pt-2 border-t border-slate-800/80">
             <div>
               <input type="text" id="filtro-audit-busca" placeholder="Buscar por usuário, IP, entidade..."
@@ -3150,13 +3899,18 @@ async function renderAuditoria(container) {
                 <option value="LOGIN">LOGIN (Logon com Sucesso)</option>
                 <option value="LOGIN_FAILED">LOGIN_FAILED (Falha de Logon)</option>
                 <option value="LOGIN_BLOCKED">LOGIN_BLOCKED (Conta Inativa)</option>
-                <option value="CRIAR_MISSAO">CRIAR_MISSAO</option>
-                <option value="STATUS_MISSAO">STATUS_MISSAO</option>
-                <option value="ALTERAR_DIARIA_MISSAO">ALTERAR_DIARIA_MISSAO</option>
-                <option value="ADICIONAR_PARTICIPANTE">ADICIONAR_PARTICIPANTE</option>
-                <option value="REMOVER_PARTICIPANTE">REMOVER_PARTICIPANTE</option>
-                <option value="CRIAR_SERVIDOR">CRIAR_SERVIDOR</option>
-                <option value="CRIAR_USUARIO">CRIAR_USUARIO</option>
+                <option value="CREATE">CREATE (Criação de Registro)</option>
+                <option value="UPDATE">UPDATE (Atualização de Registro)</option>
+                <option value="STATUS_CHANGE">STATUS_CHANGE (Alteração de Status)</option>
+                <option value="UPDATE_VALOR_DIARIA">UPDATE_VALOR_DIARIA (Alteração de Diária)</option>
+                <option value="ADD_PARTICIPANT">ADD_PARTICIPANT (Inclusão de Participante)</option>
+                <option value="UPDATE_PARTICIPANT">UPDATE_PARTICIPANT (Edição de Participante)</option>
+                <option value="REMOVE_PARTICIPANT">REMOVE_PARTICIPANT (Remoção de Participante)</option>
+                <option value="CANCEL">CANCEL (Cancelamento)</option>
+                <option value="DELETE">DELETE (Exclusão)</option>
+                <option value="DEACTIVATE">DEACTIVATE (Desativação)</option>
+                <option value="UPDATE_CONFIG">UPDATE_CONFIG (Configuração)</option>
+                <option value="PASSWORD_RESET">PASSWORD_RESET (Redefinição de Senha)</option>
               </select>
             </div>
             <div>
@@ -3206,7 +3960,7 @@ async function renderAuditoria(container) {
     });
 
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar auditoria: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao carregar auditoria", err, "navigate('auditoria')");
   }
 }
 
@@ -3243,7 +3997,6 @@ function renderAuditoriaRows(logs) {
 
 let CURRENT_LOGS_CACHE = [];
 function applyAuditoriaFilter(allLogs) {
-  CURRENT_LOGS_CACHE = allLogs;
   const busca = document.getElementById("filtro-audit-busca").value.toLowerCase();
   const op = document.getElementById("filtro-audit-op").value;
   const data = document.getElementById("filtro-audit-data").value;
@@ -3259,11 +4012,12 @@ function applyAuditoriaFilter(allLogs) {
     return matchBusca && matchOp && matchData;
   });
 
+  CURRENT_LOGS_CACHE = filtered;
   document.getElementById("auditoria-tbody").innerHTML = renderAuditoriaRows(filtered);
 }
 
 function openAuditDetail(logIndex) {
-  const log = (CURRENT_LOGS_CACHE.length > 0 ? CURRENT_LOGS_CACHE : window.__lastAuditLogs || [])[logIndex];
+  const log = CURRENT_LOGS_CACHE[logIndex];
   if (!log) return;
 
   const modalContainer = document.getElementById("modal-container");
@@ -3497,7 +4251,7 @@ function openModalNovoUsuario() {
   modalContent.innerHTML = `
     <div class="space-y-4">
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-        <h2 class="text-base font-bold text-white">Cadastrar Novo Usuário do SIS-MISSÕES</h2>
+        <h2 class="text-base font-bold text-white">Cadastrar Novo Usuário do Sistema</h2>
         <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
       </div>
 

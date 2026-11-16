@@ -573,7 +573,8 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
                     status_code=400,
                     detail=f"Status '{data.status_atual}' inválido. Valores aceitos: {', '.join(OFFICIAL_STATUSES)}"
                 )
-            if current_user.get("role") == "CADASTRADOR" and is_approval_restricted_status(st_norm):
+            curr_norm = normalize_canonical_status(m["status_atual"]) or m["status_atual"]
+            if current_user.get("role") == "CADASTRADOR" and st_norm != curr_norm and is_approval_restricted_status(st_norm):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Perfil CADASTRADOR não possui permissão para aprovar missões ou emitir OMs/PCDPs."
