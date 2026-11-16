@@ -10,25 +10,27 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            pf: {
-              900: '#0B2046',
-              800: '#142C5E',
-              700: '#1D3B7A',
-              600: '#254A96',
-              500: '#325FB5',
-              gold: '#C69214',
-              goldHover: '#D4AF37'
+    if (typeof tailwind !== "undefined") {
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              pf: {
+                900: '#0B2046',
+                800: '#142C5E',
+                700: '#1D3B7A',
+                600: '#254A96',
+                500: '#325FB5',
+                gold: '#C69214',
+                goldHover: '#D4AF37'
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif']
             }
-          },
-          fontFamily: {
-            sans: ['Inter', 'sans-serif']
           }
         }
-      }
+      };
     }
   </script>
   <link rel="stylesheet" href="/static/styles.css">

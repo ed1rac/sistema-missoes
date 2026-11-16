@@ -640,7 +640,7 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
             outros_val = float(part_row["outros_custos"] or 0.0) if part_row else 0.0
             if eff_meio != "AEREO":
                 part_passagem = 0.0
-            elif data.custo_estimado_passagens is not None or data.meio_transporte is not None:
+            elif data.custo_estimado_passagens is not None:
                 part_passagem = eff_passagens
             elif part_row is not None:
                 prev_p = float(part_row["valor_passagem_aerea"] or 0.0)

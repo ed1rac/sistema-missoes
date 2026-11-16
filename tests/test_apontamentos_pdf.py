@@ -193,6 +193,16 @@ def test_put_missao_sincroniza_passagens_e_zera_nao_aereo(client, admin_headers)
     assert m_aereo["total_custo_geral"] == (4.5 * 425.00) + 1450.00
     assert m_aereo["participantes"][0]["valor_passagem_aerea"] == 1450.00
 
+    # Editar apenas meio_transporte="AEREO" (sem custo_estimado_passagens) preserva passagem existente
+    res_up_keep = client.put(
+        f"/api/missoes/{mid}",
+        json={"meio_transporte": "AEREO", "observacoes": "Mantendo aereo"},
+        headers=admin_headers
+    )
+    assert res_up_keep.status_code == 200, res_up_keep.text
+    assert res_up_keep.json()["total_custo_passagens"] == 1450.00
+    assert res_up_keep.json()["participantes"][0]["valor_passagem_aerea"] == 1450.00
+
     # Alterar para TERRESTRE -> deve zerar passagens em missoes e missoes_participantes
     res_up_terr = client.put(
         f"/api/missoes/{mid}",

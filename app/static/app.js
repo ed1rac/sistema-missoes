@@ -169,8 +169,13 @@ function formatStatusLabel(status) {
 function renderOfficialStatusOptions(selectedVal = "", emptyLabel = "Todos os Status", restrictForCadastrador = false) {
   const normSel = normStatusKey(selectedVal);
   const isCadastrador = restrictForCadastrador && CURRENT_USER && CURRENT_USER.role === "CADASTRADOR";
+  const hasOfficialMatch = normSel && OFFICIAL_STATUSES.some(st => normStatusKey(st) === normSel);
+  const legacyOpt = (normSel && !hasOfficialMatch)
+    ? `<option value="${escapeHtml(selectedVal)}" selected>${escapeHtml(selectedVal)}</option>`
+    : "";
   return `
     ${emptyLabel ? `<option value="">${emptyLabel}</option>` : ""}
+    ${legacyOpt}
     ${OFFICIAL_STATUSES.map(st => {
       const k = normStatusKey(st);
       const sel = normSel && normSel === k ? "selected" : "";
@@ -2036,6 +2041,7 @@ async function openMissaoDetail(codigoOuId) {
                 <div class="flex items-center space-x-2">
                   <span class="text-[10px] text-slate-400 uppercase font-semibold">Trocar servidor:</span>
                   <select id="edit-trocar-servidor" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-white max-w-xs">
+                    ${!(srvAtual?.matricula || m.missionario_matricula) ? `<option value="" selected>Selecionar servidor...</option>` : ""}
                     ${ACTIVE_SERVERS_MODAL.map(s => `<option value="${escapeHtml(s.matricula)}" ${s.matricula === (srvAtual?.matricula || m.missionario_matricula) ? "selected" : ""}>${escapeHtml(s.nome_completo)} (${escapeHtml(s.matricula)})</option>`).join("")}
                   </select>
                 </div>
@@ -2977,7 +2983,10 @@ async function openModalNovaMissao() {
     }
 
     document.getElementById("nr-btn-limpar-servidor")?.addEventListener("click", () => {
-      if (nrBuscaSrv) nrBuscaSrv.value = "";
+      if (nrBuscaSrv) {
+        nrBuscaSrv.value = "";
+        nrBuscaSrv.dispatchEvent(new Event("input"));
+      }
       if (nrSelSrv) nrSelSrv.value = "";
       preencherCamposServidorNr(null);
       document.getElementById("nr-srv-nome")?.focus();
@@ -3970,21 +3979,21 @@ function renderAuditoriaRows(logs) {
   }
   return logs.map((l, idx) => `
     <tr class="hover:bg-slate-800/40 transition cursor-pointer" onclick="openAuditDetail(${idx})">
-      <td class="py-3 px-3 font-mono text-emerald-400 whitespace-nowrap font-bold">${l.timestamp}</td>
-      <td class="py-3 px-3 font-bold text-white font-mono">${l.usuario_login}</td>
-      <td class="py-3 px-3 text-slate-400 font-mono">${l.usuario_ip}</td>
+      <td class="py-3 px-3 font-mono text-emerald-400 whitespace-nowrap font-bold">${escapeHtml(l.timestamp)}</td>
+      <td class="py-3 px-3 font-bold text-white font-mono">${escapeHtml(l.usuario_login)}</td>
+      <td class="py-3 px-3 text-slate-400 font-mono">${escapeHtml(l.usuario_ip)}</td>
       <td class="py-3 px-3">
         <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
           l.operacao === 'LOGIN' ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
           (l.operacao === 'LOGIN_FAILED' || l.operacao === 'LOGIN_BLOCKED') ? 'bg-red-950 border border-red-800 text-red-300' :
           'bg-slate-800 border border-slate-700 text-blue-300'
         }">
-          ${l.operacao}
+          ${escapeHtml(l.operacao)}
         </span>
       </td>
-      <td class="py-3 px-3 font-mono text-slate-300">${l.entidade_tabela} ${l.registro_id ? `(#${l.registro_id})` : ''}</td>
+      <td class="py-3 px-3 font-mono text-slate-300">${escapeHtml(l.entidade_tabela)} ${l.registro_id ? `(#${escapeHtml(l.registro_id)})` : ''}</td>
       <td class="py-3 px-3 font-mono text-[11px] text-slate-400 max-w-xs truncate">
-        ${l.detalhes ? JSON.stringify(l.detalhes) : '-'}
+        ${l.detalhes ? escapeHtml(JSON.stringify(l.detalhes)) : '-'}
       </td>
       <td class="py-3 px-3 text-right">
         <button class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-semibold text-[10px]">
@@ -4077,7 +4086,7 @@ function openAuditDetail(logIndex) {
 
       <div>
         <h4 class="text-xs font-bold text-slate-300 uppercase mb-1">Carga de Dados / Detalhes Estruturados (JSON Payload):</h4>
-        <pre class="bg-slate-950 p-4 rounded-xl text-emerald-400 font-mono text-xs overflow-x-auto max-h-80 border border-slate-800">${JSON.stringify(log.detalhes, null, 2)}</pre>
+        <pre class="bg-slate-950 p-4 rounded-xl text-emerald-400 font-mono text-xs overflow-x-auto max-h-80 border border-slate-800">${escapeHtml(JSON.stringify(log.detalhes, null, 2))}</pre>
       </div>
 
       <div class="flex justify-end pt-2 border-t border-slate-800">
@@ -4179,7 +4188,7 @@ async function renderUsuarios(container) {
     });
 
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar usuários: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao carregar usuários", err, "navigate('usuarios')");
   }
 }
 
@@ -4540,7 +4549,7 @@ async function renderUnidades(container) {
     });
     triggerFilter();
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar unidades: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao carregar unidades", err, "navigate('unidades')");
   }
 }
 
@@ -4862,6 +4871,10 @@ async function reativarUnidade(unidId, sigla) {
 // 9. PARÂMETROS GERAIS DO SISTEMA
 // ==============================================================================
 async function renderConfig(container) {
+  if (!CURRENT_USER || !["ADMIN", "GESTOR_NAC"].includes(CURRENT_USER.role)) {
+    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Acesso restrito a perfis Administrador ou Gestor Nacional.</div>`;
+    return;
+  }
   container.innerHTML = `<div class="flex items-center justify-center p-12 text-slate-400">Carregando parâmetros...</div>`;
   try {
     const [configs, valoresDiarias] = await Promise.all([
@@ -4934,7 +4947,7 @@ async function renderConfig(container) {
       </div>
     `;
   } catch (err) {
-    container.innerHTML = `<div class="p-6 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">Erro ao carregar configurações: ${err.message}</div>`;
+    container.innerHTML = renderApiErrorBox("Erro ao carregar configurações", err, "navigate('config')");
   }
 }
 
