@@ -25,6 +25,19 @@ from app.status_utils import (
 
 router = APIRouter(prefix="/api/missoes", tags=["Missões Institucionais"])
 
+
+def _normalize_meio_transporte(raw: Optional[str]) -> str:
+    val = (raw or "").strip().upper()
+    if val in ("", "NAO_DEFINIDO", "NAO DEFINIDO", "NÃO DEFINIDO", "NÃO_DEFINIDO"):
+        return "NAO_DEFINIDO"
+    if val in ("AEREO", "AÉREO"):
+        return "AEREO"
+    if val in ("PROPRIO", "PRÓPRIO"):
+        return "PROPRIO"
+    if val == "TERRESTRE":
+        return "TERRESTRE"
+    return val
+
 def _format_participante(row: dict) -> ParticipanteOut:
     return ParticipanteOut(
         id=row["id"],
@@ -243,7 +256,7 @@ def list_missoes(
             missionario_nome_guerra=r["missionario_nome_guerra"],
             modalidade=r["modalidade"] or "INDIVIDUAL",
             status_atual=r["status_atual"],
-            meio_transporte=r["meio_transporte"] or "AEREO",
+            meio_transporte=r["meio_transporte"] or "NAO_DEFINIDO",
             custo_estimado_passagens=float(r["custo_estimado_passagens"] or 0.0),
             numero_sat=r["numero_sat"],
             numero_om=r["numero_om"],
@@ -280,15 +293,36 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
 
     total_dias = (d_termino - d_inicio).days + 1
     mid = f"mis-{uuid.uuid4().hex[:12]}"
-    modalidade = (data.modalidade or "EQUIPE").upper()
+    modalidade = (data.modalidade or "INDIVIDUAL").upper()
     raw_codigo = (data.codigo_missao or "").strip()
     justificativa_clean = (data.justificativa or "").strip()
-    status_inicial = (
-        (normalize_canonical_status(data.status_atual) or data.status_atual.strip())
-        if data.status_atual else "Pendente de Alocação"
-    )
+
+    if data.status_atual:
+        st_norm = normalize_canonical_status(data.status_atual)
+        if not st_norm:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Status '{data.status_atual}' inválido. Valores aceitos: {', '.join(OFFICIAL_STATUSES)}"
+            )
+        status_inicial = st_norm
+    else:
+        status_inicial = "Pendente de Alocação"
+
+    if current_user.get("role") == "CADASTRADOR" and is_approval_restricted_status(status_inicial):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Perfil CADASTRADOR não possui permissão para criar missão já com status avançado ou de aprovação."
+        )
+
     resp_mat = data.responsavel_matricula.strip() if (data.responsavel_matricula and data.responsavel_matricula.strip()) else None
     miss_mat = data.missionario_matricula.strip() if (data.missionario_matricula and data.missionario_matricula.strip()) else None
+    unidade_solicitante_final = (data.unidade_solicitante or "").strip() or "SR/PF/PB"
+    unidade_destino_final = (data.unidade_destino or "").strip() or None
+    tipo_missao_final = (data.tipo_missao or "").strip() or "Operacional / Repressão"
+    meio_transp = _normalize_meio_transporte(data.meio_transporte)
+    custo_passagem = float(data.custo_estimado_passagens or 0.0) if meio_transp == "AEREO" else 0.0
+    setor_dest = data.setor_destino.strip().upper() if (data.setor_destino and data.setor_destino.strip()) else None
+    fields_set = getattr(data, "model_fields_set", set())
 
     with get_db() as conn:
         # Gera código interno automático se omitido pela UI
@@ -302,29 +336,37 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
             while conn.execute("SELECT id FROM missoes WHERE codigo_missao = ?", (codigo_missao_final,)).fetchone():
                 codigo_missao_final = f"MIS-{d_inicio.year}-{uuid.uuid4().hex[:6].upper()}"
 
-        # Se valor_diaria_padrao não informado ou padrão, buscar da unidade de destino se disponível
-        valor_diaria = data.valor_diaria_padrao
-        if data.unidade_destino and (not valor_diaria or valor_diaria == 425.00):
-            u_row = conn.execute("SELECT valor_diaria FROM orgao_unidades WHERE sigla = ?", (data.unidade_destino,)).fetchone()
-            if u_row and u_row["valor_diaria"]:
-                valor_diaria = float(u_row["valor_diaria"])
+        # Localidade padrão a partir da unidade de destino se omitida
+        localidade_final = (data.localidade_descricao or "").strip()
+        if not localidade_final and unidade_destino_final:
+            u_loc = conn.execute("SELECT municipio, uf FROM orgao_unidades WHERE sigla = ?", (unidade_destino_final,)).fetchone()
+            localidade_final = f"{u_loc['municipio']}/{u_loc['uf']}" if u_loc else unidade_destino_final
+        if not localidade_final:
+            localidade_final = "A definir"
 
-        if not valor_diaria or valor_diaria <= 0:
-            cfg = conn.execute("SELECT valor FROM configuracoes WHERE chave = 'valor_diaria_padrao'").fetchone()
-            valor_diaria = float(cfg["valor"]) if cfg else 425.00
-
-        meio_transp = (data.meio_transporte or "AEREO").upper()
-        custo_passagem = float(data.custo_estimado_passagens or 0.0) if meio_transp == "AEREO" else 0.0
-        setor_dest = data.setor_destino.strip().upper() if data.setor_destino else None
+        # Respeita valor_diaria_padrao enviado explicitamente (mesmo se 425.00);
+        # auto-ajusta pela unidade apenas quando omitido ou None.
+        if "valor_diaria_padrao" in fields_set and data.valor_diaria_padrao is not None:
+            valor_diaria = float(data.valor_diaria_padrao)
+        else:
+            valor_diaria = None
+            if unidade_destino_final:
+                u_row = conn.execute("SELECT valor_diaria FROM orgao_unidades WHERE sigla = ?", (unidade_destino_final,)).fetchone()
+                if u_row and u_row["valor_diaria"] is not None:
+                    valor_diaria = float(u_row["valor_diaria"])
+            if valor_diaria is None or valor_diaria <= 0:
+                cfg = conn.execute("SELECT valor FROM configuracoes WHERE chave = 'valor_diaria_padrao'").fetchone()
+                valor_diaria = float(cfg["valor"]) if cfg else 425.00
 
         # Se modalidade INDIVIDUAL e missionario_matricula informado, validar servidor e conflito
-        if modalidade == "INDIVIDUAL" and data.missionario_matricula:
-            srv = conn.execute(
+        srv_ind = None
+        if modalidade == "INDIVIDUAL" and miss_mat:
+            srv_ind = conn.execute(
                 "SELECT matricula, nome_completo, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?",
-                (data.missionario_matricula.strip(),)
+                (miss_mat,)
             ).fetchone()
-            if not srv:
-                raise HTTPException(status_code=404, detail=f"Servidor missionário com matrícula '{data.missionario_matricula}' não encontrado.")
+            if not srv_ind:
+                raise HTTPException(status_code=404, detail=f"Servidor missionário com matrícula '{miss_mat}' não encontrado.")
 
             conflict = conn.execute(
                 """
@@ -336,13 +378,20 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                   AND p.data_apresentacao <= ?
                   AND p.data_retorno >= ?
                 """,
-                (data.missionario_matricula.strip(), str(d_termino), str(d_inicio))
+                (miss_mat, str(d_termino), str(d_inicio))
             ).fetchone()
             if conflict:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Conflito de agenda: Servidor já possui missão ativa '{conflict['codigo_missao']}' de {conflict['data_apresentacao']} a {conflict['data_retorno']}."
                 )
+
+        titulo_final = (data.titulo or "").strip()
+        if not titulo_final:
+            if modalidade == "INDIVIDUAL" and srv_ind:
+                titulo_final = f"Recrutamento - {srv_ind['nome_completo']} ({localidade_final})"
+            else:
+                titulo_final = f"Recrutamento {tipo_missao_final} - {localidade_final}"
 
         conn.execute(
             """
@@ -356,9 +405,9 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                mid, codigo_missao_final, data.titulo.strip(), justificativa_clean,
-                data.tipo_missao, data.unidade_solicitante, data.unidade_destino, setor_dest,
-                data.localidade_descricao.strip(), str(d_inicio), str(d_termino), total_dias,
+                mid, codigo_missao_final, titulo_final, justificativa_clean,
+                tipo_missao_final, unidade_solicitante_final, unidade_destino_final, setor_dest,
+                localidade_final, str(d_inicio), str(d_termino), total_dias,
                 resp_mat, miss_mat,
                 modalidade, status_inicial,
                 meio_transp, custo_passagem,
@@ -368,12 +417,8 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
         )
 
         # Se missão for individual e tiver missionário definido, criar participante atômico
-        if modalidade == "INDIVIDUAL" and data.missionario_matricula:
-            srv = conn.execute(
-                "SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?",
-                (data.missionario_matricula.strip(),)
-            ).fetchone()
-            is_sede = 1 if (srv and (srv["unidade_sigla"] == data.unidade_destino or srv["is_missionario_geral"] == 0)) else 0
+        if modalidade == "INDIVIDUAL" and miss_mat and srv_ind:
+            is_sede = 1 if ((unidade_destino_final and srv_ind["unidade_sigla"] == unidade_destino_final) or srv_ind["is_missionario_geral"] == 0) else 0
             fin = compute_participant_financials(
                 data_apresentacao=str(d_inicio),
                 data_retorno=str(d_termino),
@@ -393,7 +438,7 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    part_id, mid, data.missionario_matricula.strip(), "Missionário Individual", meio_transp,
+                    part_id, mid, miss_mat, "Missionário Individual", meio_transp,
                     str(d_inicio), str(d_termino), fin["dias_participacao"], is_sede,
                     fin["qtd_diarias"], fin["valor_diaria_unitaria"], fin["valor_total_diarias"],
                     fin["valor_passagem_aerea"], 0.0, fin["custo_total_servidor"],
@@ -408,7 +453,7 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
                 srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (mat_clean,)).fetchone()
                 if not srv:
                     continue
-                is_sede = 1 if (srv["unidade_sigla"] == data.unidade_destino or srv["is_missionario_geral"] == 0) else 0
+                is_sede = 1 if ((unidade_destino_final and srv["unidade_sigla"] == unidade_destino_final) or srv["is_missionario_geral"] == 0) else 0
                 fin = compute_participant_financials(
                     data_apresentacao=str(d_inicio),
                     data_retorno=str(d_termino),
@@ -445,7 +490,7 @@ def create_missao(data: MissaoCreate, request: Request, current_user: dict = Dep
         operacao="CREATE",
         entidade_tabela="missoes",
         registro_id=mid,
-        detalhes={"codigo_missao": codigo_missao_final, "titulo": data.titulo, "modalidade": modalidade, "valor_diaria": valor_diaria}
+        detalhes={"codigo_missao": codigo_missao_final, "titulo": titulo_final, "modalidade": modalidade, "valor_diaria": valor_diaria}
     )
 
     return MissaoOut(**res)
@@ -484,19 +529,30 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
             params.append(data.unidade_solicitante)
         if data.unidade_destino is not None:
             updates.append("unidade_destino = ?")
-            params.append(data.unidade_destino)
+            params.append(data.unidade_destino.strip() or None)
         if data.setor_destino is not None:
             updates.append("setor_destino = ?")
-            params.append(data.setor_destino.strip().upper() if data.setor_destino else None)
+            params.append(data.setor_destino.strip().upper() if data.setor_destino.strip() else None)
         if data.localidade_descricao is not None:
             updates.append("localidade_descricao = ?")
             params.append(data.localidade_descricao.strip())
-        if data.meio_transporte is not None:
+
+        eff_meio = _normalize_meio_transporte(
+            data.meio_transporte if data.meio_transporte is not None else m["meio_transporte"]
+        )
+        if eff_meio != "AEREO":
+            eff_passagens = 0.0
+        elif data.custo_estimado_passagens is not None:
+            eff_passagens = float(data.custo_estimado_passagens)
+        else:
+            eff_passagens = float(m["custo_estimado_passagens"] or 0.0)
+
+        if data.meio_transporte is not None or data.custo_estimado_passagens is not None:
             updates.append("meio_transporte = ?")
-            params.append(data.meio_transporte.strip().upper())
-        if data.custo_estimado_passagens is not None:
+            params.append(eff_meio)
             updates.append("custo_estimado_passagens = ?")
-            params.append(data.custo_estimado_passagens)
+            params.append(eff_passagens)
+
         fields_set = getattr(data, "model_fields_set", set())
         if "responsavel_matricula" in fields_set:
             updates.append("responsavel_matricula = ?")
@@ -517,20 +573,25 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
                     status_code=400,
                     detail=f"Status '{data.status_atual}' inválido. Valores aceitos: {', '.join(OFFICIAL_STATUSES)}"
                 )
+            if current_user.get("role") == "CADASTRADOR" and is_approval_restricted_status(st_norm):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Perfil CADASTRADOR não possui permissão para aprovar missões ou emitir OMs/PCDPs."
+                )
             updates.append("status_atual = ?")
             params.append(st_norm)
         if data.numero_sat is not None:
             updates.append("numero_sat = ?")
-            params.append(data.numero_sat)
+            params.append(data.numero_sat.strip() or None)
         if data.numero_om is not None:
             updates.append("numero_om = ?")
-            params.append(data.numero_om)
+            params.append(data.numero_om.strip() or None)
         if data.numero_pcdp is not None:
             updates.append("numero_pcdp = ?")
-            params.append(data.numero_pcdp)
+            params.append(data.numero_pcdp.strip() or None)
         if data.processo_sei is not None:
             updates.append("processo_sei = ?")
-            params.append(data.processo_sei)
+            params.append(data.processo_sei.strip() or None)
         if data.valor_diaria_padrao is not None:
             updates.append("valor_diaria_padrao = ?")
             params.append(float(data.valor_diaria_padrao))
@@ -545,8 +606,12 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
 
         # Sincronização de participante em missões individuais
         curr_modalidade = (data.modalidade or m["modalidade"] or "EQUIPE").upper()
-        target_missionario = data.missionario_matricula.strip() if data.missionario_matricula is not None else m["missionario_matricula"]
+        target_missionario = (data.missionario_matricula.strip() or None) if data.missionario_matricula is not None else m["missionario_matricula"]
         if curr_modalidade == "INDIVIDUAL" and target_missionario:
+            srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (target_missionario,)).fetchone()
+            if not srv:
+                raise HTTPException(status_code=404, detail=f"Servidor missionário com matrícula '{target_missionario}' não encontrado.")
+
             conflict = conn.execute(
                 """
                 SELECT m.codigo_missao, m.titulo, p.data_apresentacao, p.data_retorno
@@ -566,31 +631,46 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
                     detail=f"Conflito de agenda: Servidor já possui missão ativa '{conflict['codigo_missao']}' de {conflict['data_apresentacao']} a {conflict['data_retorno']}."
                 )
 
-            srv = conn.execute("SELECT matricula, unidade_sigla, is_missionario_geral FROM servidores WHERE matricula = ?", (target_missionario,)).fetchone()
-            dest = data.unidade_destino if data.unidade_destino is not None else m["unidade_destino"]
-            is_sede = 1 if (srv and (srv["unidade_sigla"] == dest or srv["is_missionario_geral"] == 0)) else 0
+            dest = (data.unidade_destino.strip() or None) if data.unidade_destino is not None else m["unidade_destino"]
+            is_sede = 1 if ((dest and srv["unidade_sigla"] == dest) or srv["is_missionario_geral"] == 0) else 0
             diaria_val = float(data.valor_diaria_padrao) if data.valor_diaria_padrao is not None else float(m["valor_diaria_padrao"])
+
+            part_row = conn.execute("SELECT * FROM missoes_participantes WHERE missao_id = ?", (m["id"],)).fetchone()
+            outros_val = float(part_row["outros_custos"] or 0.0) if part_row else 0.0
+            if eff_meio != "AEREO":
+                part_passagem = 0.0
+            elif data.custo_estimado_passagens is not None or data.meio_transporte is not None:
+                part_passagem = eff_passagens
+            elif part_row is not None:
+                prev_p = float(part_row["valor_passagem_aerea"] or 0.0)
+                part_passagem = prev_p if prev_p > 0 else eff_passagens
+            else:
+                part_passagem = eff_passagens
+
             fin = compute_participant_financials(
                 data_apresentacao=str(d_inicio),
                 data_retorno=str(d_termino),
                 is_sede=bool(is_sede),
-                valor_diaria_unitaria=diaria_val
+                valor_diaria_unitaria=diaria_val,
+                valor_passagem_aerea=part_passagem,
+                outros_custos=outros_val
             )
-            part_row = conn.execute("SELECT id FROM missoes_participantes WHERE missao_id = ?", (m["id"],)).fetchone()
             if part_row:
                 conn.execute(
                     """
                     UPDATE missoes_participantes
-                    SET servidor_matricula = ?, data_apresentacao = ?, data_retorno = ?,
+                    SET servidor_matricula = ?, meio_transporte = ?, data_apresentacao = ?, data_retorno = ?,
                         dias_participacao = ?, is_missao_sede = ?, qtd_diarias = ?,
-                        valor_diaria_unitaria = ?, valor_total_diarias = ?, custo_total_servidor = ?,
+                        valor_diaria_unitaria = ?, valor_total_diarias = ?,
+                        valor_passagem_aerea = ?, custo_total_servidor = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                     """,
                     (
-                        target_missionario, str(d_inicio), str(d_termino), fin["dias_participacao"],
+                        target_missionario, eff_meio, str(d_inicio), str(d_termino), fin["dias_participacao"],
                         is_sede, fin["qtd_diarias"], fin["valor_diaria_unitaria"],
-                        fin["valor_total_diarias"], fin["custo_total_servidor"], part_row["id"]
+                        fin["valor_total_diarias"], fin["valor_passagem_aerea"],
+                        fin["custo_total_servidor"], part_row["id"]
                     )
                 )
             else:
@@ -606,10 +686,10 @@ def update_missao(codigo_ou_id: str, data: MissaoUpdate, request: Request, curre
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        part_id, m["id"], target_missionario, "Missionário Individual", "AEREO",
+                        part_id, m["id"], target_missionario, "Missionário Individual", eff_meio,
                         str(d_inicio), str(d_termino), fin["dias_participacao"], is_sede,
                         fin["qtd_diarias"], fin["valor_diaria_unitaria"], fin["valor_total_diarias"],
-                        0.0, 0.0, fin["custo_total_servidor"],
+                        fin["valor_passagem_aerea"], 0.0, fin["custo_total_servidor"],
                         "Participante individual vinculado automaticamente."
                     )
                 )

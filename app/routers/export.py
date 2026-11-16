@@ -224,7 +224,7 @@ def export_missoes_json(current_user: dict = Depends(get_current_user)):
             result.append(m_dict)
 
     payload = {
-        "plataforma": "SIS-MISSÕES PF",
+        "plataforma": "Sistema de Controle de Diárias e Passagens",
         "versao": "2.0",
         "timestamp": datetime.now().isoformat(),
         "total_registros": len(result),
