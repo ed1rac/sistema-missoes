@@ -14,7 +14,7 @@ if __name__ == "__main__":
     print(" Sistema de Controle de Diárias e Passagens - Polícia Federal")
     print(f" Servidor iniciando em: http://localhost:{PORT} (reload={reload_enabled})")
     print(f" Documentação da API: http://localhost:{PORT}/docs")
-    print(" Usuários Mestres: 'admin' (senha 123456) | 'edkallenn' (senha 123456)")
+    print(" Consulte o README.md para credenciais iniciais e altere as senhas após o deploy.")
     print("=" * 70)
 
     uvicorn.run(

@@ -21,10 +21,12 @@ config.DATABASE_URL = f"sqlite:///{test_db_path}"
 
 from app.seed import seed_database
 from app.main import app
+from tests.test_fixtures_seed import seed_test_fixtures
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
     seed_database(test_db_path)
+    seed_test_fixtures(test_db_path)
     yield
     # Limpeza após testes
     try:

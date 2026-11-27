@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=5179 \
     HOST=0.0.0.0 \
-    UVICORN_RELOAD=false
+    UVICORN_RELOAD=false \
+    TZ=America/Sao_Paulo
 
 WORKDIR /app
 

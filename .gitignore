@@ -29,7 +29,10 @@ wheels/
 htmlcov/
 .tox/
 
-# Local databases & logs
+# Local databases, env & logs
+.env
+.env.*
+!.env.example
 *.log
 *.sqlite
 *.sqlite3

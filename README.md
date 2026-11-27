@@ -1,206 +1,195 @@
-# SIS-MISSÕES PF (v2.0)
-## Sistema Integrado de Gestão e Controle de Missões e Servidores da Polícia Federal
+# Sistema de Controle de Diárias e Passagens (SIS-MISSÕES PF)
 
-[![Status](https://img.shields.io/badge/Status-Produção_Ready-emerald.svg)]()
-[![Stack](https://img.shields.io/badge/Stack-FastAPI%20%7C%20Pydantic%20v2%20%7C%20SQLite%2FPostgres%20%7C%20Tailwind-blue.svg)]()
-[![Testes](https://img.shields.io/badge/Testes-24%2F24%20Passando%20(100%25)-brightgreen.svg)]()
-[![Porta](https://img.shields.io/badge/Porta%20Padrão-5179-gold.svg)]()
+[![Stack](https://img.shields.io/badge/Stack-FastAPI%20%7C%20Pydantic%20v2%20%7C%20SQLite%20%7C%20Docker-blue.svg)]()
+[![Porta](https://img.shields.io/badge/Porta%20Padr%C3%A3o-5179-gold.svg)]()
 
----
-
-### Sumário Executivo
-
-O **SIS-MISSÕES PF** é a nova plataforma institucional corporativa para planejamento, designação, controle financeiro, prestação de contas e auditoria de missões e servidores da Polícia Federal em todo o território nacional.
-
-Este sistema foi construído a partir do zero em substituição ao antigo aplicativo departamental monousuário, transformando um fluxo manual e desconectado em uma **solução Web moderna, multiusuário, auditável, de alta performance e pronta para uso imediato**.
+Plataforma web corporativa para planejamento, designação, controle financeiro de diárias e passagens aéreas, prestação de contas e auditoria de missões e servidores da Polícia Federal.
 
 ---
 
-## 1. Por que este Sistema é Muito Superior ao Anterior?
+## 1. Implantação em Servidor Linux via Docker (Produção)
 
-| Dimensão Avaliada | Sistema Legado (Legado Desktop) | Novo SIS-MISSÕES PF (v2.0) |
-|---|---|---|
-| **Modelo Conceitual** | Estritamente restrito a fluxo acadêmico isolado. Policiais cadastrados com perfis estáticos e sem flexibilidade. | Conceito centralizado de **SERVIDOR** (DPF, PCF, APF, EPF, PPF, ADM). Papéis (coordenador, instrutor, perito, operador) são dinâmicos por missão. |
-| **Entidade Missão** | Propriedade embutida e subordinada dentro do cadastro do instrutor (desnormalizada, redundante e inconsistente). | **Entidade de 1ª Classe independente**: possui código institucional único, fluxo administrativo formal (OM, SAT, PCDP, Processo SEI) e equipe $N:M$. |
-| **Valor da Diária** | Fixo ou embutido no código, sem possibilidade de ajuste operacional flexível. | **CAMPO EDITÁVEL DA DIÁRIA:** Permite alterar o valor base da diária em nível de sistema, por missão e por participante, com **recalculo dinâmico instantâneo** de todos os totais. |
-| **Fórmula de Diárias** | Cálculos manuais ou fórmulas estáticas sem transparência. | Regra oficial regulamentar automatizada: **$(N - 0{,}5) \times \text{diária}$** com dedução de meia-diária no retorno e **isenção total ($R\$\ 0{,}00$)** para servidores lotados na sede da missão. |
-| **Conflito de Agendas** | Inexistente. Um policial podia ser alocado em três missões simultâneas sem qualquer aviso. | **Motor Preditivo de Conflitos**: bloqueia ou alerta sobreposição de datas do servidor em missões concorrentes. |
-| **Gestão de Passagens** | Desconectada de diárias e sem controle de localizadores. | Controle integrado de passagens aéreas, número de e-ticket, localizador e custos operacionais adicionais. |
-| **Central de Alertas** | Nenhuma. Gestores esqueciam prazos de PCDP e prestação de contas. | **Alertas Proativos**: missões prestes a iniciar sem PCDP tramitada no SCDP e missões com prestação de contas em atraso (> 5 dias). |
-| **Arquitetura & Acesso** | Aplicação desktop monousuário presa a um único computador. | **100% Web SPA Responsiva**, multiusuário, com controle RBAC (Admin, Gestor, Servidor), segura e compatível com desktops e dispositivos móveis. |
-| **Auditoria e Compliance** | Sem qualquer rastreabilidade de quem alterou o quê. | **Trilha Imutável de Auditoria (`audit_logs`)** registrando login, IP, operador, ação e diff JSONB de alterações (atendimento LGPD). |
-| **Interoperabilidade** | Exportações quebradas ou rudimentares. | Exportação em tempo real para **Excel (.xlsx estilizado multiabas)**, **CSV (UTF-8 com BOM)** e **JSON Canônico**. |
+No ambiente de produção Linux, o sistema é executado exclusivamente em container Docker na porta **`5179`**, com persistência de banco SQLite montada em `./app/data/missoes.db`.
+
+### Pré-requisitos no Servidor Linux
+- Docker Engine (`>= 24.x`)
+- Docker Compose v2 (`docker compose`)
+- Git
+
+### Passo a Passo de Subida
+
+1. **Clonar o repositório:**
+   ```bash
+   git clone https://github.com/ed1rac/sistema-missoes.git
+   cd sistema-missoes
+   ```
+
+2. **Configurar variáveis de ambiente (recomendado em produção):**
+   ```bash
+   cp .env.example .env
+   ```
+   Edite o arquivo `.env` e defina uma chave forte para `JWT_SECRET` (exemplo para gerar no Linux):
+   ```bash
+   openssl rand -hex 32
+   ```
+
+3. **Construir e iniciar o container:**
+   ```bash
+   docker compose up -d --build
+   ```
+
+4. **Verificar saúde e logs:**
+   ```bash
+   docker compose ps
+   docker compose logs -f
+   ```
+
+5. **Endereços de Acesso (Porta `5179`):**
+   - **Aplicação Web:** `http://<IP_OU_HOST_DO_SERVIDOR>:5179`
+   - **Documentação OpenAPI / Swagger:** `http://<IP_OU_HOST_DO_SERVIDOR>:5179/docs`
+   - **ReDoc:** `http://<IP_OU_HOST_DO_SERVIDOR>:5179/redoc`
+   - **Healthcheck:** `http://<IP_OU_HOST_DO_SERVIDOR>:5179/api/health`
+
+### Comandos Operacionais de Manutenção
+```bash
+# Reiniciar serviço (senhas e dados em ./app/data/missoes.db são preservados)
+docker compose restart
+
+# Parar containers
+docker compose down
+
+# Backup rápido do banco SQLite
+cp app/data/missoes.db "backup_missoes_$(date +%Y%m%d_%H%M%S).db"
+```
 
 ---
 
-## 2. Credenciais de Acesso e Usuários Mestres (Ready-to-Use)
+## 2. Banco Saneado, Usuários Padrão e Troca Obrigatória de Senhas
 
-O sistema já é inicializado automaticamente com os usuários mestres cadastrados e ativos:
+O banco de dados inicial é criado automaticamente no primeiro boot **totalmente saneado**, **sem nenhum dado mockado** (zero servidores fictícios, zero missões de exemplo e zero logs prévios). Apenas as tabelas de domínio institucional (unidades da PF, setores da SR/PF/PB, faixas de diárias, cargos, tipos e papéis de missão) e os usuários iniciais de acesso são provisionados.
 
-| Login / Usuário | Senha Padrão | Nível de Privilégio | Finalidade |
+### Usuários e Senhas-Padrão Iniciais
+
+| Usuário (`username`) | Senha Inicial | Perfil RBAC | Nível de Acesso / Finalidade |
 |---|---|---|---|
-| **`admin`** | **`123456`** | **`ADMIN` (Master)** | Administração geral do sistema, parâmetros globais e controle total. |
-| **`edkallenn`** | **`123456`** | **`ADMIN` (Master)** | Usuário Master solicitado para operação e homologação completa. |
+| **`edkallenn`** | **`123456`** | **`ADMIN` (Master)** | Usuário Master com controle administrativo total do sistema, usuários, unidades e aprovações. |
+| **`admin`** | **`123456`** | **`ADMIN` (Master)** | Administrador Geral do sistema para configuração inicial e contingência. |
+| **`cadastrador`** | **`123456`** | **`CADASTRADOR`** | Cadastro e edição de servidores e recrutamentos (sem permissão para aprovar ou emitir OM/PCDP). |
+| **`gerencial`** | **`123456`** | **`GERENCIAL`** | Consulta completa a painéis, gráficos, relatórios, exportações e trilha de auditoria (somente leitura). |
 
----
+> **AVISO CRÍTICO DE SEGURANÇA:**
+> **Após subir os containers, TODAS as senhas padrão (`123456`) acima DEVEM ser trocadas imediatamente**, antes de liberar o acesso a outros usuários na rede.
+> Além disso, altere o `JWT_SECRET` no `.env` antes de iniciar o ambiente produtivo (a troca de `JWT_SECRET` invalida tokens antigos).
 
-## 3. Inicialização Rápida e Execução
+### Sugestões de Alteração de Senhas
+- Substitua `123456` por senhas individuais fortes com **no mínimo 12 caracteres**, combinando letras maiúsculas, minúsculas, números e símbolos especiais (ex.: `Pf#Pb!2026$Adm9x`, nunca reutilize a mesma senha entre os perfis).
+- Caso algum perfil operacional (`admin`, `cadastrador` ou `gerencial`) não seja necessário imediatamente, altere sua senha e, se desejar, desative-o em **Gestão de Usuários**.
+- O processo de seed (`app/seed.py`) utiliza inserção não destrutiva (`ON CONFLICT DO NOTHING`): após alterar as senhas e parâmetros no sistema, **reinícios futuros do container Docker não sobrescreverão suas novas senhas**.
 
-### Porta Padrão: `5179`
-O sistema roda por padrão na porta **`5179`**, conforme especificado:
-- **Interface Web:** `http://localhost:5179`
-- **Documentação Interativa OpenAPI / Swagger:** `http://localhost:5179/docs`
-- **Documentação Alternativa ReDoc:** `http://localhost:5179/redoc`
-- **Healthcheck:** `http://localhost:5179/api/health`
+### Como Trocar Todas as Senhas Após Subir os Containers
 
-### Método A: Execução Direta via Python (Recomendado para Desenvolvimento)
+**Opção A — Pela Interface Web (Recomendado):**
+1. Acesse `http://<SERVIDOR>:5179` e entre com `edkallenn` / `123456`.
+2. No menu lateral, abra **Gestão de Usuários**.
+3. Clique no botão **Senha** em cada uma das contas (`edkallenn`, `admin`, `cadastrador`, `gerencial`) e defina uma nova senha forte para cada uma.
+4. Saia do sistema (**Desconectar**) e valide o login com a nova senha de `edkallenn`.
 
-1. Certifique-se de estar na pasta do projeto:
-   ```bash
-   cd d:\SHARED\projetos\sistema-missoes\sistema-missoes-novo
-   ```
-
-2. Instale as dependências (caso não estejam instaladas):
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Inicie o servidor com o script `run.py`:
-   ```bash
-   python run.py
-   ```
-
-4. Abra o navegador em:
-   ```
-   http://localhost:5179
-   ```
-
----
-
-### Método B: Execução via Docker / Docker Compose
-
-O ecossistema é 100% conteinerizado com persistência de dados em volume nomeado:
-
+**Opção B — Via API REST (`curl` no servidor Linux):**
 ```bash
-cd d:\SHARED\projetos\sistema-missoes\sistema-missoes-novo
-docker compose up -d --build
-```
+# 1. Obter token de administrador
+TOKEN=$(curl -s -X POST http://localhost:5179/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"edkallenn","password":"123456"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-Para visualizar logs:
-```bash
-docker compose logs -f
+# 2. Redefinir senha de cada usuário padrão
+for USER in edkallenn admin cadastrador gerencial; do
+  read -rsp "Nova senha para ${USER}: " NOVA_SENHA; echo
+  curl -s -X POST "http://localhost:5179/api/usuarios/${USER}/reset-password" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"new_password\":\"${NOVA_SENHA}\"}"
+  echo
+done
 ```
 
 ---
 
-## 4. O Campo Editável da Diária e Recálculo Dinâmico
+## 3. Principais Funcionalidades
 
-Uma das inovações centrais é a flexibilidade do valor da diária:
-
-1. **Diária Padrão do Sistema:**
-   - Configurada globalmente em `/api/config` (padrão institucional de R$ 425,00).
-   - Pode ser atualizada a qualquer momento na aba **Parâmetros & Diária**.
-
-2. **Campo Editável na Missão:**
-   - Na tela de detalhes de qualquer missão, há o componente em destaque **"Campo Editável da Diária da Missão"**.
-   - O gestor pode alterar o valor (ex: de R$ 425,00 para R$ 480,00 ou R$ 500,00 em razão de localidade remota ou instrução especializada).
-   - Ao clicar em **"Recalcular Diárias"**, o sistema dispara o endpoint `PATCH /api/missoes/{id}/valor-diaria`:
-     - O valor unitário é atualizado.
-     - **Todos os participantes da missão são recalculados imediatamente**, aplicando a dedução de 0,5 diária e atualizando o custo geral da missão.
-
-3. **Diária Customizada por Participante:**
-   - Permite que um participante específico tenha uma diária diferenciada por decisão fundamentada.
+- **Gestão de Recrutamento (Individual e em Equipe):** cadastro simplificado ou completo com detecção automática de conflitos de agenda entre missões concorrentes.
+- **Cálculo Regulamentar de Diárias e Passagens:**
+  - $N$ dias ($N > 1$): $(N - 0{,}5) \times \text{valor da diária}$.
+  - $1$ dia (retorno no mesmo dia): $0{,}5 \times \text{valor da diária}$.
+  - Servidor lotado na sede de destino (`is_missao_sede = True` ou `is_missionario_geral = False`): isenção automática de diárias ($R\$\ 0{,}00$).
+  - Valores de referência configuráveis por faixa (`INTERIOR` R$ 335,00, `CAPITAIS` R$ 380,00, `CAPITAIS_ESPECIAIS` R$ 425,00) e campo editável por missão (`PATCH /api/missoes/{id}/valor-diaria`) com recálculo em lote.
+- **Ciclo de Vida com 11 Status Oficiais:**
+  `Indicado` → `Pendente de Alocação` → `SAT pendente` → `SAT Atendida` / `SAT Recusada` / `SAT Reiterada` → `OM EMITIDA` → `PCDP CADASTRADA` → `PCDP ENCAMINHADA` → `PCDP PRESTAR CONTAS` → `Concluído`.
+- **Dashboard Executivo e Alertas Proativos:** filtros dinâmicos por período, unidade da PB (`SR/PF/PB`, `DPF/CGE/PB`, `DPF/PAT/PB`), setor, cargo, transporte e status; alertas de PCDP próxima, prestação de contas em atraso, conflitos de agenda e emissão de bilhete aéreo (17 dias).
+- **Trilha Imutável de Auditoria (`audit_logs`):** registro de logons, falhas de autenticação, alterações cadastrais, mudanças de status e exportações com horário oficial de Brasília (`America/Sao_Paulo`).
+- **Interoperabilidade:** exportação autenticada para **Excel (`.xlsx`)**, **CSV (`UTF-8` com BOM)** e **JSON**.
 
 ---
 
-## 5. Regras Institucionais de Cálculo Financeiro
+## 4. Testes Automatizados
 
-### Fórmula Oficial Aplicada
-- Para $N$ dias ($N > 1$):
-  $$\text{Qtd Diárias} = N - 0{,}5$$
-  *(Dedução de meia diária referente ao dia do retorno).*
-- Para 1 dia:
-  $$\text{Qtd Diárias} = 0{,}5$$
-- Servidor Lotado na Sede da Missão (`is_missao_sede = True`):
-  $$\text{Qtd Diárias} = 0{,}0 \quad \text{e} \quad \text{Valor Total} = R\$\ 0{,}00$$
-- Valor Total de Diárias:
-  $$\text{Total Diárias} = \text{Qtd Diárias} \times \text{Valor Unitário}$$
-- Custo Consolidado do Servidor:
-  $$\text{Custo Total} = \text{Total Diárias} + \text{Passagem Aérea} + \text{Outros Custos}$$
+A suíte automatizada utiliza `pytest` com banco SQLite temporário isolado por execução (sem alterar dados de produção):
 
----
-
-## 6. Ciclo de Vida da Missão (Máquina de Estados)
-
-O sistema guia o processo administrativo através dos 9 estados formais:
-1. `RASCUNHO`: Planejamento inicial da missão.
-2. `SOLICITADA`: Submissão à chefia da unidade.
-3. `APROVADA`: Homologação da oportunidade e conveniência.
-4. `OM_EMITIDA`: Geração formal da Ordem de Missão.
-5. `PCDP_TRAMITADA`: Cadastramento no SCDP do Governo Federal.
-6. `EM_ANDAMENTO`: Efetivo em trânsito ou no local de execução.
-7. `PRESTACAO_CONTAS`: Encerramento das atividades e cobrança de bilhetes/relatórios.
-8. `CONCLUIDA`: Prestação de contas aprovada.
-9. `CANCELADA`: Revogação motivada por necessidade do serviço.
-
----
-
-## 7. Bateria de Testes Automatizados (24/24 Passando)
-
-A suíte de testes com `pytest` cobre todas as camadas do sistema:
-- `tests/test_calculator.py`: Validação matemática de diárias, dedução de retorno, isenção de sede e validação de datas.
-- `tests/test_auth.py`: Autenticação dos usuários `admin` e `edkallenn`, tokens JWT e proteção de rotas.
-- `tests/test_missoes.py`: Ciclo de vida, campo editável da diária, recálculo dinâmico e bloqueio de conflitos de agenda.
-- `tests/test_servidores.py`: CRUD de servidores, filtros por cargo e inativação lógica.
-- `tests/test_export.py`: Exportações CSV (BOM), Excel (.xlsx multiabas) e JSON.
-
-### Como Executar os Testes:
 ```bash
-cd d:\SHARED\projetos\sistema-missoes\sistema-missoes-novo
 pytest -v
 ```
 
+Principais módulos de teste em `tests/`:
+- `tests/test_production_seed.py`: saneamento do banco de produção, presença dos usuários padrão (`edkallenn`, `admin`, `cadastrador`, `gerencial`), preservação de senhas/configurações entre reinícios e operação com banco vazio.
+- `tests/test_auth.py`: autenticação JWT, perfis e proteção de rotas.
+- `tests/test_calculator.py`: fórmula oficial de diárias, isenção de sede e validação de datas.
+- `tests/test_missoes.py`: ciclo de vida, recálculo dinâmico de diárias e detecção de conflitos.
+- `tests/test_servidores.py`: CRUD de efetivo, filtros e inativação lógica.
+- `tests/test_rbac_and_features.py`: matriz RBAC, gestão de usuários, auditoria BRT e CRUD de unidades.
+- `tests/test_novas_regras.py`: faixas de diárias, setores PB, status oficiais, filtros e alertas aéreos.
+- `tests/test_apontamentos_pdf.py`: CPF opcional, login vazio, sincronização de passagens/transporte e assets da interface.
+- `tests/test_export.py`: exportações `.csv`, `.xlsx`, `.json` e dashboard.
+
 ---
 
-## 8. Estrutura de Diretórios do Projeto
+## 5. Estrutura do Projeto
 
-```
-sistema-missoes-novo/
+```text
+sistema-missoes/
 ├── app/
 │   ├── __init__.py
-│   ├── config.py              # Configurações globais (Porta 5179, DB, JWT)
-│   ├── database.py            # Conexão e DDL SQLite/Postgres com PRAGMA foreign_keys
-│   ├── models.py / schemas.py # DTOs Pydantic v2 com validação estrita
-│   ├── auth.py                # Autenticação Bcrypt e tokens JWT
-│   ├── calculator.py          # Regras e fórmulas institucionais de diárias PF
-│   ├── audit.py               # Gravador imutável de trilha de auditoria
-│   ├── seed.py                # Auto-seed de usuários master, unidades e dados canônicos
-│   ├── main.py                # Ponto de entrada FastAPI e montagem de SPA
+│   ├── audit.py               # Registro imutável de auditoria (America/Sao_Paulo)
+│   ├── auth.py                # Hashing Bcrypt, tokens JWT e dependências RBAC
+│   ├── calculator.py          # Cálculo regulamentar de diárias e custos
+│   ├── config.py              # Configurações (porta 5179, caminhos, JWT)
+│   ├── database.py            # Conexão SQLite, schema DDL e migrações idempotentes
+│   ├── main.py                # Aplicação FastAPI e servidor SPA
+│   ├── schemas.py             # Modelos Pydantic v2
+│   ├── seed.py                # Seed saneado (usuários iniciais + tabelas institucionais)
+│   ├── status_utils.py        # Normalização e filtragem dos 11 status oficiais
 │   ├── routers/
-│   │   ├── auth.py            # Login e perfil (/api/auth)
-│   │   ├── servidores.py      # Efetivo e servidores (/api/servidores)
-│   │   ├── missoes.py         # Gestão de missões, participantes e diária (/api/missoes)
-│   │   ├── dashboard.py       # Painel executivo e alertas (/api/dashboard)
-│   │   ├── export.py          # Exportação Excel, CSV, JSON (/api/export)
-│   │   ├── config.py          # Parâmetros (/api/config)
-│   │   └── audit.py           # Logs de conformidade (/api/audit)
+│   │   ├── audit.py           # Consulta de logs (/api/audit)
+│   │   ├── auth.py            # Autenticação (/api/auth)
+│   │   ├── config.py          # Parâmetros globais (/api/config)
+│   │   ├── dashboard.py       # Indicadores, gráficos e alertas (/api/dashboard)
+│   │   ├── export.py          # Exportação XLSX, CSV e JSON (/api/export)
+│   │   ├── missoes.py         # Missões, participantes, unidades e setores (/api/missoes)
+│   │   ├── servidores.py      # Cadastro de servidores (/api/servidores)
+│   │   └── usuarios.py        # Administração de usuários e senhas (/api/usuarios)
 │   ├── static/
-│   │   ├── index.html         # Single Page Application institucional
-│   │   ├── app.js             # Controlador dinâmico da interface
-│   │   └── styles.css         # Estilização corporativa e badges
+│   │   ├── index.html         # Interface SPA
+│   │   ├── app.js             # Lógica de frontend
+│   │   └── styles.css         # Estilos e temas
 │   └── data/
-│       └── missoes.db         # Banco relacional local pronto para uso
-├── tests/
-│   ├── conftest.py            # Fixtures de banco isolado e tokens
-│   ├── test_calculator.py     # Testes da fórmula de diárias
-│   ├── test_auth.py           # Testes de autenticação
-│   ├── test_missoes.py        # Testes de missões e diária editável
-│   ├── test_servidores.py     # Testes de efetivo
-│   └── test_export.py         # Testes de relatórios
-├── Dockerfile                 # Imagem Python 3.13-slim
-├── docker-compose.yml         # Orquestração com volume persistente
-├── pytest.ini                 # Configuração do pytest
-├── requirements.txt           # Dependências de produção
-├── run.py                     # Script de inicialização na porta 5179
-└── README.md                  # Manual completo
+│       └── .gitkeep           # Diretório persistente para missoes.db
+├── tests/                     # Suíte de testes automatizados (pytest)
+├── .dockerignore
+├── .env.example
+├── .gitattributes
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── pytest.ini
+├── requirements.txt
+├── run.py
+└── README.md
 ```

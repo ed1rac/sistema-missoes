@@ -215,65 +215,68 @@ def init_db(db_path: str = None):
                     conn.execute("ALTER TABLE servidores ADD COLUMN cpf TEXT;")
 
             unid_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orgao_unidades'").fetchone()
+            needs_unidade_rule_backfill = False
             if unid_check:
                 u_cols = [r["name"] for r in conn.execute("PRAGMA table_info(orgao_unidades)").fetchall()]
                 if "valor_diaria" not in u_cols:
                     conn.execute("ALTER TABLE orgao_unidades ADD COLUMN valor_diaria REAL NOT NULL DEFAULT 380.00;")
+                    needs_unidade_rule_backfill = True
                 if "categoria_diaria" not in u_cols:
                     conn.execute("ALTER TABLE orgao_unidades ADD COLUMN categoria_diaria TEXT NOT NULL DEFAULT 'CAPITAIS';")
+                    needs_unidade_rule_backfill = True
                 if "tipo_unidade" not in u_cols:
                     conn.execute("ALTER TABLE orgao_unidades ADD COLUMN tipo_unidade TEXT NOT NULL DEFAULT 'CAPITAL';")
+                    needs_unidade_rule_backfill = True
         except Exception as e:
+            needs_unidade_rule_backfill = False
             print(f"[DB PRE-MIGRATION WARNING] {e}")
 
         conn.executescript(SCHEMA_SQL)
 
-        # Atualização em lote de todas as unidades já existentes conforme as regras oficiais:
-        # - Todas as delegacias são interior (R$ 335,00)
-        # - Todas as SRs são capitais (R$ 380,00) exceto DF, RJ, SP, AM (R$ 425,00)
-        # - Todas as divisões e diretorias são em Brasília/DF (R$ 425,00)
-        try:
-            conn.execute("""
-                UPDATE orgao_unidades SET
-                    valor_diaria = CASE
-                        WHEN uf IN ('DF', 'RJ', 'SP', 'AM') 
-                             OR sigla LIKE 'D%/PF' 
-                             OR sigla LIKE 'DITEC%' 
-                             OR sigla LIKE 'DLOG%' 
-                             OR sigla LIKE 'DGP%' 
-                             OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 425.00
-                        WHEN sigla LIKE 'DPF/%' 
-                             OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
-                             OR tipo_unidade = 'DELEGACIA' 
-                             OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 335.00
-                        ELSE 380.00
-                    END,
-                    categoria_diaria = CASE
-                        WHEN uf IN ('DF', 'RJ', 'SP', 'AM') 
-                             OR sigla LIKE 'D%/PF' 
-                             OR sigla LIKE 'DITEC%' 
-                             OR sigla LIKE 'DLOG%' 
-                             OR sigla LIKE 'DGP%' 
-                             OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 'CAPITAIS_ESPECIAIS'
-                        WHEN sigla LIKE 'DPF/%' 
-                             OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
-                             OR tipo_unidade = 'DELEGACIA' 
-                             OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 'INTERIOR'
-                        ELSE 'CAPITAIS'
-                    END,
-                    tipo_unidade = CASE
-                        WHEN sigla LIKE 'DPF/%' 
-                             OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
-                             OR tipo_unidade = 'DELEGACIA' 
-                             OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 'DELEGACIA'
-                        WHEN sigla LIKE 'D%/PF' 
-                             OR sigla LIKE 'DITEC%' 
-                             OR sigla LIKE 'DLOG%' 
-                             OR sigla LIKE 'DGP%' 
-                             OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 'DIRETORIA_DIVISAO'
-                        ELSE 'SUPERINTENDENCIA'
-                    END;
-            """)
-        except Exception as e:
-            print(f"[DB RULE UPDATE WARNING] {e}")
+        # Atualização em lote apenas durante migração de bases legadas que ainda não possuíam as colunas de diária
+        if needs_unidade_rule_backfill:
+            try:
+                conn.execute("""
+                    UPDATE orgao_unidades SET
+                        valor_diaria = CASE
+                            WHEN uf IN ('DF', 'RJ', 'SP', 'AM') 
+                                 OR sigla LIKE 'D%/PF' 
+                                 OR sigla LIKE 'DITEC%' 
+                                 OR sigla LIKE 'DLOG%' 
+                                 OR sigla LIKE 'DGP%' 
+                                 OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 425.00
+                            WHEN sigla LIKE 'DPF/%' 
+                                 OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
+                                 OR tipo_unidade = 'DELEGACIA' 
+                                 OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 335.00
+                            ELSE 380.00
+                        END,
+                        categoria_diaria = CASE
+                            WHEN uf IN ('DF', 'RJ', 'SP', 'AM') 
+                                 OR sigla LIKE 'D%/PF' 
+                                 OR sigla LIKE 'DITEC%' 
+                                 OR sigla LIKE 'DLOG%' 
+                                 OR sigla LIKE 'DGP%' 
+                                 OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 'CAPITAIS_ESPECIAIS'
+                            WHEN sigla LIKE 'DPF/%' 
+                                 OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
+                                 OR tipo_unidade = 'DELEGACIA' 
+                                 OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 'INTERIOR'
+                            ELSE 'CAPITAIS'
+                        END,
+                        tipo_unidade = CASE
+                            WHEN sigla LIKE 'DPF/%' 
+                                 OR (sigla LIKE '%/PB' AND (sigla LIKE '%CGE%' OR sigla LIKE '%PAT%'))
+                                 OR tipo_unidade = 'DELEGACIA' 
+                                 OR UPPER(nome_extenso) LIKE '%DELEGACIA%' THEN 'DELEGACIA'
+                            WHEN sigla LIKE 'D%/PF' 
+                                 OR sigla LIKE 'DITEC%' 
+                                 OR sigla LIKE 'DLOG%' 
+                                 OR sigla LIKE 'DGP%' 
+                                 OR tipo_unidade = 'DIRETORIA_DIVISAO' THEN 'DIRETORIA_DIVISAO'
+                            ELSE 'SUPERINTENDENCIA'
+                        END;
+                """)
+            except Exception as e:
+                print(f"[DB RULE UPDATE WARNING] {e}")
 
