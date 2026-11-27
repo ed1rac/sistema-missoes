@@ -54,6 +54,11 @@ class UserPasswordReset(BaseModel):
         return self.nova_senha or self.new_password or ""
 
 
+class UserSelfPasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class ServidorBase(BaseModel):
     matricula: str
     nome_completo: str

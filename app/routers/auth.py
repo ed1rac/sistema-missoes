@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from app.schemas import UserLogin, TokenResponse, UserOut
-from app.auth import verify_password, create_access_token, get_current_user
+from app.schemas import UserLogin, TokenResponse, UserOut, UserSelfPasswordChange
+from app.auth import verify_password, hash_password, create_access_token, get_current_user
 from app.database import get_db
 from app.audit import log_audit
 
@@ -91,3 +91,48 @@ def get_profile(current_user: dict = Depends(get_current_user)):
         role=current_user["role"],
         ativo=bool(current_user["ativo"])
     )
+
+
+@router.post("/change-password")
+def change_own_password(
+    payload: UserSelfPasswordChange,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    if len(payload.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A nova senha deve possuir ao menos 6 caracteres."
+        )
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, username, password_hash FROM usuarios WHERE id = ? AND ativo = 1",
+            (current_user["id"],)
+        ).fetchone()
+        if not row or not verify_password(payload.current_password, row["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Senha atual incorreta."
+            )
+        if verify_password(payload.new_password, row["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A nova senha deve ser diferente da senha atual."
+            )
+
+        conn.execute(
+            "UPDATE usuarios SET password_hash = ? WHERE id = ?",
+            (hash_password(payload.new_password), row["id"])
+        )
+
+    log_audit(
+        usuario_login=current_user["username"],
+        usuario_ip=request.client.host if (request and request.client) else "127.0.0.1",
+        operacao="PASSWORD_CHANGE",
+        entidade_tabela="usuarios",
+        registro_id=current_user["id"],
+        detalhes={"username": current_user["username"]}
+    )
+
+    return {"status": "ok", "message": "Senha alterada com sucesso."}

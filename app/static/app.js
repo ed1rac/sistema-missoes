@@ -368,6 +368,65 @@ function logout() {
   showLoginModal(true);
 }
 
+function openModalAlterarMinhaSenha() {
+  if (!CURRENT_USER) return;
+  const modalContainer = document.getElementById("modal-container");
+  const modalContent = document.getElementById("modal-content");
+  modalContainer.classList.remove("hidden");
+
+  modalContent.innerHTML = `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h2 class="text-base font-bold text-white">Alterar Minha Senha (${escapeHtml(CURRENT_USER.username)})</h2>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
+      </div>
+
+      <form id="form-alterar-minha-senha" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Senha Atual</label>
+          <input type="password" id="self-senha-atual" required autocomplete="current-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Nova Senha (Mínimo 6 caracteres)</label>
+          <input type="password" id="self-nova-senha" required minlength="6" autocomplete="new-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Confirmar Nova Senha</label>
+          <input type="password" id="self-confirmar-senha" required minlength="6" autocomplete="new-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white">
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-pf-gold hover:bg-yellow-400 text-slate-950 font-bold rounded-xl shadow">Salvar Nova Senha</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.getElementById("form-alterar-minha-senha").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const current_password = document.getElementById("self-senha-atual").value;
+    const new_password = document.getElementById("self-nova-senha").value;
+    const confirm_password = document.getElementById("self-confirmar-senha").value;
+
+    if (new_password !== confirm_password) {
+      alert("A nova senha e a confirmação não coincidem.");
+      return;
+    }
+
+    try {
+      await apiFetch("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ current_password, new_password })
+      });
+      alert("Sua senha foi alterada com sucesso!");
+      closeModal();
+    } catch (err) {
+      alert(`Erro ao alterar senha: ${err.message}`);
+    }
+  });
+}
+
 function updateUserInfo() {
   if (!CURRENT_USER) return;
   document.getElementById("user-display-name").textContent = CURRENT_USER.full_name || CURRENT_USER.username;
@@ -1181,7 +1240,9 @@ function renderDashboardTabelaHtml(missoes) {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800/60">
-            ${missoes.map(m => `
+            ${missoes.length === 0 ? `
+              <tr><td colspan="8" class="text-center py-8 text-slate-500">Nenhuma missão encontrada com os filtros selecionados.</td></tr>
+            ` : missoes.map(m => `
               <tr class="hover:bg-slate-800/40 transition">
                 <td class="py-3 px-3">
                   <span class="badge-status badge-${m.modalidade || 'EQUIPE'}">${m.modalidade || 'EQUIPE'}</span>
@@ -3920,6 +3981,7 @@ async function renderAuditoria(container) {
                 <option value="DEACTIVATE">DEACTIVATE (Desativação)</option>
                 <option value="UPDATE_CONFIG">UPDATE_CONFIG (Configuração)</option>
                 <option value="PASSWORD_RESET">PASSWORD_RESET (Redefinição de Senha)</option>
+                <option value="PASSWORD_CHANGE">PASSWORD_CHANGE (Alteração Própria de Senha)</option>
               </select>
             </div>
             <div>

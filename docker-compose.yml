@@ -9,10 +9,10 @@ services:
       - "5179:5179"
     environment:
       - PORT=5179
-      - HOST=0.0.0.0
-      - UVICORN_RELOAD=false
-      - TZ=America/Sao_Paulo
-      - DEFAULT_DAILY_ALLOWANCE=425.00
+      - HOST=${HOST:-0.0.0.0}
+      - UVICORN_RELOAD=${UVICORN_RELOAD:-false}
+      - TZ=${TZ:-America/Sao_Paulo}
+      - DEFAULT_DAILY_ALLOWANCE=${DEFAULT_DAILY_ALLOWANCE:-425.00}
       - JWT_SECRET=${JWT_SECRET:-sis-missoes-super-secret-key-pf-2026-production}
     volumes:
       - ./app/data:/app/app/data

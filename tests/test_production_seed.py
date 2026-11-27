@@ -147,6 +147,45 @@ def test_api_operates_cleanly_on_sanitized_empty_database():
             res_json = c.get("/api/export/missoes.json", headers=headers)
             assert res_json.status_code == 200
             assert res_json.json()["total_registros"] == 0
+
+            # Logs de auditoria devem registrar o login em BRT no banco saneado
+            res_audit = c.get("/api/audit/logs", headers=headers)
+            assert res_audit.status_code == 200
+            logs = res_audit.json()
+            assert any(l["operacao"] == "LOGIN" and l["usuario_login"] == "edkallenn" for l in logs)
+
+            # Qualquer perfil (ex.: cadastrador) pode alterar a própria senha via /api/auth/change-password
+            res_cad = c.post("/api/auth/login", json={"username": "cadastrador", "password": "123456"})
+            assert res_cad.status_code == 200
+            cad_headers = {"Authorization": f"Bearer {res_cad.json()['access_token']}"}
+
+            # Senha atual errada -> 400
+            res_bad_curr = c.post(
+                "/api/auth/change-password",
+                json={"current_password": "errada", "new_password": "Cad@Strong2026!"},
+                headers=cad_headers,
+            )
+            assert res_bad_curr.status_code == 400
+
+            # Nova senha curta -> 400
+            res_short = c.post(
+                "/api/auth/change-password",
+                json={"current_password": "123456", "new_password": "123"},
+                headers=cad_headers,
+            )
+            assert res_short.status_code == 400
+
+            # Troca válida (inclusive com aspas/caracteres especiais)
+            res_chg = c.post(
+                "/api/auth/change-password",
+                json={"current_password": "123456", "new_password": 'Cad#2026"Strong!'},
+                headers=cad_headers,
+            )
+            assert res_chg.status_code == 200
+
+            # Senha antiga deixa de funcionar e nova passa a autenticar
+            assert c.post("/api/auth/login", json={"username": "cadastrador", "password": "123456"}).status_code == 401
+            assert c.post("/api/auth/login", json={"username": "cadastrador", "password": 'Cad#2026"Strong!'}).status_code == 200
     finally:
         config.DB_FILE = prev_db_file
         database.DB_FILE = prev_db_mod_file

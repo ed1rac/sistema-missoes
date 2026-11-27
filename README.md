@@ -93,21 +93,23 @@ O banco de dados inicial é criado automaticamente no primeiro boot **totalmente
 2. No menu lateral, abra **Gestão de Usuários**.
 3. Clique no botão **Senha** em cada uma das contas (`edkallenn`, `admin`, `cadastrador`, `gerencial`) e defina uma nova senha forte para cada uma.
 4. Saia do sistema (**Desconectar**) e valide o login com a nova senha de `edkallenn`.
+5. Cada usuário autenticado também pode trocar a própria senha a qualquer momento pelo botão **Alterar Senha** no menu lateral (`POST /api/auth/change-password`).
 
 **Opção B — Via API REST (`curl` no servidor Linux):**
 ```bash
 # 1. Obter token de administrador
-TOKEN=$(curl -s -X POST http://localhost:5179/api/auth/login \
+TOKEN=$(curl -fsS -X POST http://localhost:5179/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"edkallenn","password":"123456"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# 2. Redefinir senha de cada usuário padrão
+# 2. Redefinir senha de cada usuário padrão (escapa caracteres especiais com segurança)
 for USER in edkallenn admin cadastrador gerencial; do
   read -rsp "Nova senha para ${USER}: " NOVA_SENHA; echo
-  curl -s -X POST "http://localhost:5179/api/usuarios/${USER}/reset-password" \
+  PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"new_password": sys.argv[1]}))' "${NOVA_SENHA}")
+  curl -fsS -X POST "http://localhost:5179/api/usuarios/${USER}/reset-password" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "{\"new_password\":\"${NOVA_SENHA}\"}"
+    -d "${PAYLOAD}"
   echo
 done
 ```

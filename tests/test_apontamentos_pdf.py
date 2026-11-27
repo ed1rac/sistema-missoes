@@ -307,6 +307,7 @@ def test_ui_assets_apontamentos_pdf_presentes(client):
     html = res_html.text
     assert "Sistema de Controle de Diárias e Passagens" in html
     assert "Gestão Recrutamento" in html
+    assert "openModalAlterarMinhaSenha" in html
     assert "header-diaria-val" not in html
 
     res_js = client.get("/static/app.js")
@@ -318,3 +319,4 @@ def test_ui_assets_apontamentos_pdf_presentes(client):
     assert "STATUS_CHANGE" in js
     assert "UPDATE_VALOR_DIARIA" in js
     assert "downloadExport" in js
+    assert "/api/auth/change-password" in js
